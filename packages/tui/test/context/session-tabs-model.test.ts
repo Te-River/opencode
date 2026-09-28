@@ -201,6 +201,20 @@ describe("session tabs", () => {
     expect(reopenSessionTab([], tabs)).toEqual({ stack: [], tabs: undefined, sessionID: undefined })
   })
 
+  test("reopens a selected closed tab without consuming newer entries", () => {
+    const stack = recordClosedSessionTab(recordClosedSessionTab([], { sessionID: "b" }, 1), { sessionID: "c" }, 2)
+    const result = reopenSessionTab(stack, [{ sessionID: "a" }], "b")
+    expect(result.sessionID).toBe("b")
+    expect(result.tabs).toEqual([{ sessionID: "a" }, { sessionID: "b" }])
+    expect(result.stack).toEqual([{ tab: { sessionID: "c" }, index: 2 }])
+    expect(reopenSessionTab(stack, [], "missing")).toEqual({ stack, tabs: undefined, sessionID: undefined })
+    expect(reopenSessionTab(stack, [{ sessionID: "b" }], "b")).toEqual({
+      stack: [{ tab: { sessionID: "c" }, index: 2 }],
+      tabs: undefined,
+      sessionID: undefined,
+    })
+  })
+
   test("skips and consumes closed entries that are already open", () => {
     const stack = [
       { tab: { sessionID: "a" }, index: 0 },
