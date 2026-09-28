@@ -269,7 +269,7 @@ export const layer = Layer.effect(
       const entries = Object.entries(shaped.options)
       const generation = Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields
       const providerOptions = Object.fromEntries(entries.filter(([k]) => !GENERATION_KEYS.has(k)))
-      const affinity = SessionAffinity.of(session)
+      const affinity = SessionAffinity.get(session)
       const base = LLM.request({
         model: model.model,
         http: {

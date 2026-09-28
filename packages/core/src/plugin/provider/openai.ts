@@ -309,7 +309,7 @@ export const OpenAIPlugin = define({
             .pipe(Effect.orElseSucceed(() => undefined))
           evt.headers.originator = "opencode"
           // ChatGPT routes its prompt cache on this header, so children share the parent's.
-          evt.headers["session-id"] = session ? SessionAffinity.of(session) : evt.sessionID
+          evt.headers["session-id"] = session ? SessionAffinity.get(session) : evt.sessionID
         }),
       { providerID: Provider.ID.openai },
     )
