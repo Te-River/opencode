@@ -5,10 +5,8 @@ import { Global } from "@opencode/util/global"
 import { TeamPlugin } from "@opencode/core/plugin/team"
 import { Session } from "@opencode/core/session"
 import { Effect } from "effect"
-import { mkdtempSync } from "node:fs"
-import os from "node:os"
-import path from "node:path"
 import { it } from "../lib/effect"
+import { tmpdirScoped } from "../fixture/tmpdir"
 import { host } from "./host"
 
 /**
@@ -19,7 +17,6 @@ import { host } from "./host"
  * the user cannot arrive at is the same as no lead.
  */
 
-const data = mkdtempSync(path.join(os.tmpdir(), "opencode-team-test"))
 const sessionID = Session.ID.make("ses_team_test")
 const team = Agent.ID.make("team")
 const architect = Agent.ID.make("architect")
@@ -38,6 +35,9 @@ function fresh(id: Agent.ID) {
 }
 
 const run = Effect.fnUntraced(function* () {
+  // The board root comes from Global.data, so the temp directory is scoped: a test
+  // that left one behind per run is how a CI runner fills up.
+  const tmp = yield* tmpdirScoped()
   const registered = new Map<Agent.ID, ReturnType<typeof fresh>>()
   const definitions = new Map<string, Command.Definition>()
   const switched = new Array<string>()
@@ -84,7 +84,7 @@ const run = Effect.fnUntraced(function* () {
         },
       },
     }),
-  ).pipe(Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), data })))
+  ).pipe(Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), data: tmp.path })))
   return { registered, definitions, switched, prompts }
 })
 
