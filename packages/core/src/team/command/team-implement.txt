@@ -1,0 +1,9 @@
+Implement the following task.  Follow the project's existing code style and conventions.
+
+## Task
+$ARGUMENTS
+
+## Rules
+- Read relevant existing files before writing code.
+- Handle errors properly.
+- After finishing, list every file you created or modified.
