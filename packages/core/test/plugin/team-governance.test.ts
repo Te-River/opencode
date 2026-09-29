@@ -7,10 +7,8 @@ import { SessionMessage } from "@opencode/core/session/message"
 import { Session } from "@opencode/core/session"
 import { Tool } from "@opencode/schema/tool"
 import { Effect } from "effect"
-import { mkdtempSync } from "node:fs"
-import os from "node:os"
-import path from "node:path"
 import { it } from "../lib/effect"
+import { tmpdirScoped } from "../fixture/tmpdir"
 import { host } from "./host"
 
 /**
@@ -24,7 +22,6 @@ import { host } from "./host"
  * still retrievable" is the claim that makes narrowing legitimate at all.
  */
 
-const data = mkdtempSync(path.join(os.tmpdir(), "opencode-team-governance-test"))
 const sessionID = Session.ID.make("ses_team_governance_test")
 const team = Agent.ID.make("team")
 const build = Agent.ID.make("build")
@@ -36,6 +33,10 @@ const snapshot = [
 ].join("\n")
 
 const run = Effect.fnUntraced(function* () {
+  // Each cap writes its full text under Global.data/team/output, so the directory is
+  // scoped: the assertion that the spill is readable is also the thing that must
+  // not accumulate one per test run.
+  const tmp = yield* tmpdirScoped()
   let toolHook: ((input: ToolHooks["execute.after"]) => Effect.Effect<void>) | undefined
   yield* TeamPlugin.Plugin.effect(
     host({
@@ -75,7 +76,7 @@ const run = Effect.fnUntraced(function* () {
         },
       },
     }),
-  ).pipe(Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), data })))
+  ).pipe(Effect.provideService(Global.Service, Global.Service.of({ ...Global.make(), data: tmp.path })))
   if (!toolHook) return yield* Effect.die("team plugin did not register an execute.after hook")
   return { fire: toolHook }
 })
