@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test"
 import { TeamBoard } from "@opencode/core/team/board"
 import { TeamCommands } from "@opencode/core/team/commands"
 import { TeamLedger } from "@opencode/core/team/ledger"
+import { Effect } from "effect"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 /**
  * The ledger is the lead's plan of record, so its two failure modes are the ones
@@ -70,6 +75,32 @@ describe("TeamBoard", () => {
   test("roots stay inside the Team directory", () => {
     expect(TeamBoard.teamRoot("/data")).toBe("/data/team")
     expect(TeamBoard.rootFor("/data")).toBe("/data/team/board")
+  })
+
+  test("a session is judged idle by the newest write anywhere in it", async () => {
+    // The prompt tells every role the sweep is the ONLY cleanup path, so a board the
+    // lead is still revising must survive it. A revision lands at
+    // `<session>/<task>/NN-<role>-<topic>.md`, which does not move the session
+    // directory's own mtime.
+    const root = await mkdtemp(path.join(os.tmpdir(), "opencode-board-"))
+    try {
+      const session = path.join(root, "20260101-000000")
+      const file = path.join(session, "auth-design", "01-architect-design.md")
+      await mkdir(path.dirname(file), { recursive: true })
+      await writeFile(file, "# design\n", "utf8")
+      const past = new Date(Date.now() - 20 * 86_400_000)
+      await utimes(session, past, past)
+      await Effect.runPromise(TeamBoard.sweep(root, TeamBoard.TTL_DAYS))
+      expect(existsSync(file)).toBe(true)
+
+      // Now genuinely idle: everything down to the file is old.
+      await utimes(path.dirname(file), past, past)
+      await utimes(file, past, past)
+      await Effect.runPromise(TeamBoard.sweep(root, TeamBoard.TTL_DAYS))
+      expect(existsSync(session)).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 
