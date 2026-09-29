@@ -37,6 +37,9 @@ const TABLE_LINE = /^\s*\|.*\|\s*$/
 export const THRESHOLD_TEXT = 4_000
 export const THRESHOLD_DATA = 2_000
 
+/** How much prose survives a plain summary cap — a sample to recognise, not a reading copy. */
+export const PREVIEW_TOKENS = 120
+
 export type Strategy = "addressing" | "table" | "summary"
 
 export interface Capped {
@@ -59,9 +62,9 @@ export function cap(text: string): Capped | undefined {
   if (!strategy) return undefined
   // The kept lines are bounded by the tier they were measured against, so a cap
   // can never re-introduce a result as large as the one it replaced.
-  const budget = strategy === "addressing" ? THRESHOLD_DATA : THRESHOLD_TEXT
+  const budget = strategy === "addressing" ? THRESHOLD_DATA : strategy === "table" ? THRESHOLD_TEXT : PREVIEW_TOKENS
   const lines = text.split("\n")
-  const kept = strategy === "table" ? keepTables(lines, budget) : keepAddressing(lines, budget)
+  const kept = keep(strategy, lines, budget)
   if (kept.length === 0) return undefined
   const rendered = render(strategy, lines, kept, tokensBefore)
   return {
@@ -84,19 +87,37 @@ function choose(text: string, tokens: number): Strategy | undefined {
   return tokens >= THRESHOLD_TEXT ? "summary" : undefined
 }
 
-function keepAddressing(lines: string[], budget: number) {
-  // A snapshot whose refs still exceed the budget keeps the head of the list; the
-  // dropped remainder is in the spill file, which the render names.
-  return limit(lines.filter((line) => ADDRESSING.test(line)), budget)
+function keep(strategy: Strategy, lines: string[], budget: number) {
+  if (strategy === "addressing")
+    // A snapshot whose refs still exceed the budget keeps the head of the list;
+    // the dropped remainder is in the spill file, which the render names.
+    return limit(lines.filter((line) => ADDRESSING.test(line)), budget)
+  if (strategy === "table") {
+    const tables = lines.filter((line) => TABLE_LINE.test(line))
+    const first = lines.findIndex((line) => TABLE_LINE.test(line))
+    const heading = first > 0 ? lines.slice(0, first).filter((line) => /^#{1,4}\s/.test(line)) : []
+    // A table with a row missing is not smaller, it is broken — so rows are kept in
+    // full and the prose around them is what pays.
+    return [...heading, ...limit(tables, budget)]
+  }
+  const sample = limit(lines, budget)
+  if (sample.length > 0) return sample
+  // A payload with no line boundary at all (minified code, a one-line log) is the
+  // case a per-line budget cannot reach, and it is the one that hurts most: slice a
+  // head so the model at least recognises what it is looking at.
+  const first = lines.find((line) => line.trim() !== "")
+  return first === undefined ? [] : [truncate(first, budget)]
 }
 
-function keepTables(lines: string[], budget: number) {
-  const tables = lines.filter((line) => TABLE_LINE.test(line))
-  const first = lines.findIndex((line) => TABLE_LINE.test(line))
-  const heading = first > 0 ? lines.slice(0, first).filter((line) => /^#{1,4}\s/.test(line)) : []
-  // A table with a row missing is not smaller, it is broken — so rows are kept in
-  // full and the prose around them is what pays.
-  return [...heading, ...limit(tables, budget)]
+function truncate(text: string, budget: number) {
+  let out = ""
+  let used = 0
+  for (const char of text) {
+    used += cjkRange.test(char) ? 1 : 0.25
+    if (used > budget) return `${out}…`
+    out += char
+  }
+  return out
 }
 
 function limit(lines: string[], budget: number) {
