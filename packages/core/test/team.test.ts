@@ -33,17 +33,23 @@ describe("TeamCap", () => {
   })
 
   test("does not treat bracketed log tokens as references", () => {
-    // The same payload from a tool whose output nobody addresses BY: `[INFO]` lines
-    // are prose, and keeping "ref-like" lines here would drop what the reader came
-    // for. Under the text tier it should reach the model whole.
+    // `[INFO]`/`[WARN]` are prose markers and this payload sits under the text tier,
+    // so it reaches the model whole no matter which tool produced it.
     const log = [
       filler(120, 90),
       "[INFO] compiled 42 modules",
       "[WARN] bundle size grew 8%",
     ].join("\n")
     expect(TeamCap.cap(log, "shell")).toBeUndefined()
-    // And the identical text is capped only because the tool is a browser snapshot.
-    expect(TeamCap.cap(log, "browser.snapshot")?.strategy).toBe("addressing")
+    expect(TeamCap.cap(log, "browser.snapshot")).toBeUndefined()
+  })
+
+  test("keeps reference lines only for the tool whose output they address", () => {
+    const snapshot = [filler(120, 90), "[ref=b12] Submit order"].join("\n")
+    expect(TeamCap.cap(snapshot, "browser.snapshot")?.strategy).toBe("addressing")
+    // The same bytes from another tool: nothing here is addressed BY a reference, so
+    // keeping only the ref line would throw away what the agent came to read.
+    expect(TeamCap.cap(snapshot, "shell")).toBeUndefined()
   })
 
   test("keeps every table row and pays with the prose", () => {
