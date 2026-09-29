@@ -120,7 +120,10 @@ describe("TeamPlugin cap", () => {
       const event = completed(team, "call_parts", [{ type: "text", text: snapshot }])
       yield* fire(event)
       const text = textOf(event)
-      expect(text).toContain("[team cap] addressing")
+      expect(text).toContain("[team cap]")
+      // Which strategy fired is a machine-readable claim on the result, so assert it
+      // through the metadata the hook wrote rather than by string-matching prose.
+      expect(event.status === "completed" && event.result.metadata?.team_capped).toBe("addressing")
       expect(text).toContain("[ref=b12] Submit order")
       // A middle prose line is dropped from the context and only in the file: the cap
       // render echoes the FIRST line on purpose, so that one proves nothing.

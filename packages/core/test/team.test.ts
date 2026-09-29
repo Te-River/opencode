@@ -114,8 +114,13 @@ describe("TeamGovern scope", () => {
   })
 
   test("lives under the Team root", () => {
-    expect(TeamGovern.outputRoot("/data")).toBe("/data/team/output")
-    expect(TeamGovern.trajectoryRoot("/data")).toBe("/data/team/trajectory")
+    // Compared through path, not a slash literal: `path.join` yields this platform's
+    // separator, so `"/data/team/output"` would fail on a Windows runner.
+    const team = TeamBoard.teamRoot("/data")
+    expect(path.dirname(TeamGovern.outputRoot("/data"))).toBe(team)
+    expect(path.dirname(TeamGovern.trajectoryRoot("/data"))).toBe(team)
+    expect(path.basename(TeamGovern.outputRoot("/data"))).toBe("output")
+    expect(path.basename(TeamGovern.trajectoryRoot("/data"))).toBe("trajectory")
   })
 
   test("a call id cannot steer the spill path", () => {
@@ -189,8 +194,10 @@ describe("TeamBoard", () => {
   })
 
   test("roots stay inside the Team directory", () => {
-    expect(TeamBoard.teamRoot("/data")).toBe("/data/team")
-    expect(TeamBoard.rootFor("/data")).toBe("/data/team/board")
+    const team = TeamBoard.teamRoot("/data")
+    expect(path.basename(team)).toBe("team")
+    expect(path.dirname(TeamBoard.rootFor("/data"))).toBe(team)
+    expect(path.basename(TeamBoard.rootFor("/data"))).toBe("board")
   })
 
   test("a session is judged idle by the newest write anywhere in it", async () => {
