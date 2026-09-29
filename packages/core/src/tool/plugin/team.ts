@@ -58,7 +58,9 @@ export const Plugin = {
         Effect.map((stored) => (TeamLedger.isLedger(stored) ? stored : TeamLedger.EMPTY)),
       )
     const writeLedger = (key: string, ledger: TeamLedger.Ledger) =>
-      ctx.storage.set(key, ledger).pipe(
+      // A readonly array does not satisfy the storage codec's JSON shape, and the
+      // copy is cheap next to a write.
+      ctx.storage.set(key, { items: [...ledger.items] }).pipe(
         Effect.mapError((error) => new ToolFailure({ message: "Unable to write the ledger", error })),
       )
 
@@ -78,6 +80,13 @@ export const Plugin = {
           options: { namespace: "team", codemode: false },
           execute: (input, context) =>
             Effect.gen(function* () {
+              // The permission rules deny this for the five specialists, and this is the
+              // second lock: a user rule that hands `team_ledger` back to a child should
+              // not let that child rewrite the list its own work is judged against.
+              if (String(context.agent) !== "team")
+                return yield* new ToolFailure({
+                  message: "The ledger is the lead's. Report your item in HANDOFF instead.",
+                })
               const key = `team/ledger/${context.sessionID}`
               const current = yield* readLedger(key)
               if (input.action === "list") return { output: { text: TeamLedger.render(current) } }

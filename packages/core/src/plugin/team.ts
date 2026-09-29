@@ -67,14 +67,20 @@ export const Plugin = define({
           name: command.name,
           description: command.description,
           execute: (input) =>
-            ctx.session
-              .prompt({
+            Effect.gen(function* () {
+              // `/team-run` is how you enter Team mode without hunting for it in the
+              // picker, so it moves the session onto the lead before it prompts. The
+              // five specialists are `subagent` mode and cannot BE a session's agent —
+              // for those the text names the role that owes the work.
+              if (command.role === "team")
+                yield* ctx.session.switchAgent({ sessionID: input.sessionID, agent: Agent.ID.make("team") })
+              yield* ctx.session.prompt({
                 ...input.prompt,
                 sessionID: input.sessionID,
                 text: TeamCommands.render(command, input.prompt.text),
                 delivery: input.delivery,
               })
-              .pipe(Effect.asVoid),
+            }).pipe(Effect.asVoid),
         })
       }
     })
