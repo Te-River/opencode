@@ -59,9 +59,11 @@ export const sweep = Effect.fn("TeamBoard.sweep")(function* (root: string, ttlDa
     sessions,
     (entry) =>
       expired(path.join(root, entry.name), ttlDays * DAY_MS).pipe(
-        Effect.flatMap((stale) =>
-          stale ? Effect.promise(() => rm(path.join(root, entry.name), { recursive: true, force: true }).catch(() => undefined)) : Effect.void,
-        ),
+        Effect.flatMap((stale) => {
+          if (!stale) return Effect.void
+          const directory = path.join(root, entry.name)
+          return Effect.promise(() => rm(directory, { recursive: true, force: true }).catch(() => undefined))
+        }),
       ),
     { discard: true },
   )

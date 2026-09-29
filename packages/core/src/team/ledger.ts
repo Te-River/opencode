@@ -42,7 +42,11 @@ export function add(ledger: Ledger, text: string): Added | Refusal {
   return { ledger: { items: [...ledger.items, item] }, item }
 }
 
-export function change(ledger: Ledger, id: string, patch: { status?: Status; text?: string; note?: string }): Ledger | Refusal {
+export function change(
+  ledger: Ledger,
+  id: string,
+  patch: { status?: Status; text?: string; note?: string },
+): Ledger | Refusal {
   if (patch.status !== undefined && !VALID.test(patch.status))
     return { refusal: `unknown status ${JSON.stringify(patch.status)} — use ${[...STATUSES].join(" | ")}` }
   const index = ledger.items.findIndex((item) => item.id === id.trim())

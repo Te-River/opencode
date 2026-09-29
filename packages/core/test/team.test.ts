@@ -58,7 +58,11 @@ describe("TeamCap", () => {
   })
 
   test("a cap is never as large as the result it replaced", () => {
-    for (const text of [`${filler(120, 90)}\n[ref=b1] go`, ["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n")]) {
+    const inputs = [
+      `${filler(120, 90)}\n[ref=b1] go`,
+      ["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n"),
+    ]
+    for (const text of inputs) {
       const capped = TeamCap.cap(text)
       if (!capped) continue
       expect(capped.tokensAfter).toBeLessThan(capped.tokensBefore)
@@ -90,7 +94,11 @@ describe("TeamGovern scope", () => {
 
 describe("TeamLedger", () => {
   const at = (count: number) => ({
-    items: Array.from({ length: count }, (_, index) => ({ id: `T${index + 1}`, text: `item ${index}`, status: "pending" as const })),
+    items: Array.from({ length: count }, (_, index) => ({
+      id: `T${index + 1}`,
+      text: `item ${index}`,
+      status: "pending" as const,
+    })),
   })
 
   test("an interruption is an insertion, not a duplicate item", () => {

@@ -30,16 +30,19 @@ export interface Permission {
   readonly effect: "allow" | "ask" | "deny"
 }
 
-const refuse = (actions: string[], effect: Permission["effect"] = "deny") =>
+const rules = (actions: string[], effect: Permission["effect"] = "deny") =>
   actions.map((action) => ({ action, resource: "*", effect }))
 
 /** Denied by every role: a child must not re-open the questions the lead owns. */
-const COMMON = refuse(["patch", "skill", "subagent"])
+const COMMON = rules(["patch", "skill", "subagent"])
 
 /** The ledger is the lead's: an interrupted child must not rewrite the plan it is being judged against. */
-const NOT_LEADS = refuse(["team_ledger"])
+const NOT_LEADS = rules(["team_ledger"])
 
-const FILE_READ = refuse(["read", "grep", "glob"], "allow")
+const FILE_READ = rules(["read", "grep", "glob"], "allow")
+
+/** Every role may read the run's accounting; the ledger stays the lead's. */
+const TEAM_READ = rules(["team_stats"], "allow")
 
 export const roles: readonly Role[] = [
   {
@@ -52,12 +55,12 @@ export const roles: readonly Role[] = [
     system: TeamPrompts.lead,
     board: false,
     permissions: [
-      ...refuse(["patch", "skill"]),
+      ...rules(["patch", "skill"]),
       { action: "question", resource: "*", effect: "allow" },
       { action: "subagent", resource: "*", effect: "allow" },
       { action: "edit", resource: "*", effect: "allow" },
       { action: "shell", resource: "*", effect: "allow" },
-      ...refuse(["webfetch", "websearch", "browser"], "ask"),
+      ...rules(["webfetch", "websearch", "browser"], "ask"),
       { action: "team_*", resource: "*", effect: "allow" },
     ],
   },
@@ -70,7 +73,15 @@ export const roles: readonly Role[] = [
     mode: "subagent",
     system: TeamPrompts.specialists.architect,
     board: true,
-    permissions: [...COMMON, ...refuse(["question"]), ...FILE_READ, { action: "edit", resource: "*", effect: "deny" }, ...refuse(["shell", "webfetch", "websearch", "browser"]), { action: "team_fetch", resource: "*", effect: "allow" }, { action: "team_stats", resource: "*", effect: "allow" }, ...NOT_LEADS],
+    permissions: [
+      ...COMMON,
+      ...rules(["question"]),
+      ...FILE_READ,
+      { action: "edit", resource: "*", effect: "deny" },
+      ...rules(["shell", "webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
+      ...NOT_LEADS,
+    ],
   },
   {
     id: "implementer",
@@ -81,7 +92,15 @@ export const roles: readonly Role[] = [
     mode: "subagent",
     system: TeamPrompts.specialists.implementer,
     board: true,
-    permissions: [...COMMON, ...refuse(["question"]), { action: "edit", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "allow" }, ...refuse(["webfetch", "websearch", "browser"]), { action: "team_fetch", resource: "*", effect: "allow" }, { action: "team_stats", resource: "*", effect: "allow" }, ...NOT_LEADS],
+    permissions: [
+      ...COMMON,
+      ...rules(["question"]),
+      { action: "edit", resource: "*", effect: "allow" },
+      { action: "shell", resource: "*", effect: "allow" },
+      ...rules(["webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
+      ...NOT_LEADS,
+    ],
   },
   {
     id: "reviewer",
@@ -92,7 +111,16 @@ export const roles: readonly Role[] = [
     mode: "subagent",
     system: TeamPrompts.specialists.reviewer,
     board: true,
-    permissions: [...COMMON, ...refuse(["question"]), ...FILE_READ, { action: "edit", resource: "*", effect: "deny" }, { action: "shell", resource: "*", effect: "allow" }, ...refuse(["webfetch", "websearch", "browser"]), { action: "team_fetch", resource: "*", effect: "allow" }, { action: "team_stats", resource: "*", effect: "allow" }, ...NOT_LEADS],
+    permissions: [
+      ...COMMON,
+      ...rules(["question"]),
+      ...FILE_READ,
+      { action: "edit", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "allow" },
+      ...rules(["webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
+      ...NOT_LEADS,
+    ],
   },
   {
     id: "tester",
@@ -103,7 +131,16 @@ export const roles: readonly Role[] = [
     mode: "subagent",
     system: TeamPrompts.specialists.tester,
     board: true,
-    permissions: [...COMMON, ...refuse(["question"]), { action: "edit", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "allow" }, ...refuse(["webfetch", "websearch"]), { action: "browser", resource: "*", effect: "ask" }, { action: "team_fetch", resource: "*", effect: "allow" }, { action: "team_stats", resource: "*", effect: "allow" }, ...NOT_LEADS],
+    permissions: [
+      ...COMMON,
+      ...rules(["question"]),
+      { action: "edit", resource: "*", effect: "allow" },
+      { action: "shell", resource: "*", effect: "allow" },
+      ...rules(["webfetch", "websearch"]),
+      { action: "browser", resource: "*", effect: "ask" },
+      ...TEAM_READ,
+      ...NOT_LEADS,
+    ],
   },
   {
     id: "researcher",
@@ -116,13 +153,12 @@ export const roles: readonly Role[] = [
     board: true,
     permissions: [
       ...COMMON,
-      ...refuse(["question"]),
+      ...rules(["question"]),
       ...FILE_READ,
       { action: "edit", resource: "*", effect: "deny" },
-      ...refuse(["shell"]),
-      ...refuse(["webfetch", "websearch", "browser"], "ask"),
-      { action: "team_fetch", resource: "*", effect: "allow" },
-      { action: "team_stats", resource: "*", effect: "allow" },
+      ...rules(["shell"]),
+      ...rules(["webfetch", "websearch", "browser"], "ask"),
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },
