@@ -7,6 +7,7 @@ import { Effect } from "effect"
 import path from "path"
 import { TeamBoard } from "../team/board.js"
 import { TeamCommands } from "../team/commands.js"
+import { TeamGovern } from "../team/govern.js"
 import { TeamRoles } from "../team/roles.js"
 
 /**
@@ -29,6 +30,8 @@ export const Plugin = define({
     const global = yield* Global.Service
     const team = TeamBoard.teamRoot(global.data)
     const board = TeamBoard.rootFor(global.data)
+    const outputs = TeamGovern.outputRoot(global.data)
+    const trajectory = TeamGovern.trajectoryRoot(global.data)
 
     yield* ctx.agent.transform((editor) => {
       for (const role of TeamRoles.roles) {
@@ -82,6 +85,49 @@ export const Plugin = define({
       }
     })
 
+    yield* ctx.tool.hook("execute.after", (event) => {
+      if (event.status !== "completed") return Effect.void
+      if (!TeamGovern.scoped(String(event.agent))) return Effect.void
+      const given = event.result.content
+      // A tool result is either one string or a part list, and shipped built-ins use
+      // both shapes, so the cap reads either and writes back the shape it found.
+      const parts =
+        given === undefined
+          ? []
+          : typeof given === "string"
+            ? [{ type: "text" as const, text: given }]
+            : given.flatMap((item) => (item.type === "text" ? [item] : []))
+      // A result that also carries a file part (a screenshot) is left alone: pixels
+      // are the point of the call, and a cap cannot describe them.
+      if (parts.length === 0 || (typeof given !== "string" && parts.length !== given.length)) return Effect.void
+      return TeamGovern.govern({
+        outputs,
+        trajectory,
+        tool: event.tool,
+        agent: String(event.agent),
+        sessionID: String(event.sessionID),
+        callID: String(event.id),
+        content: parts,
+      }).pipe(
+        Effect.flatMap((capped) => {
+          if (!capped) return Effect.void
+          // The first text part carries the cap and the rest go empty rather than
+          // disappearing: a result that silently lost a part is a claim the
+          // trajectory cannot describe.
+          event.result = {
+            ...event.result,
+            content:
+              typeof given === "string"
+                ? capped.rendered
+                : [{ type: "text" as const, text: capped.rendered }, ...parts.slice(1).map(() => ({ type: "text" as const, text: "" }))],
+            metadata: { ...event.result.metadata, team_capped: capped.strategy },
+          }
+          return Effect.void
+        }),
+      )
+    })
+
     yield* TeamBoard.maintenance(board)
+    yield* TeamGovern.maintenance(outputs, trajectory)
   }),
 })

@@ -104,8 +104,8 @@ Fixed priority ladder for EVERY task:
 There is no separate governed web channel: fetching and searching go through the
 host's own tools, and the context governance applies to whichever tool produced
 the result, so an oversized page comes back narrowed either way with its full
-text on disk.  The one thing `team_*` exists for is the lead's own task list
-(`team_ledger`).
+text on disk.  Use `team_*` for what only they do: the lead's task list
+(`team_ledger`) and reading the run's own accounting (`team_stats`).
 Fallback is graceful: when a tool errors (no browser on this host, blocked
 host, missing shell bridge), say so and drop to the next rung instead of
 giving up.
@@ -121,10 +121,10 @@ the concrete call BEFORE answering.
   the side panel the user can actually see).
 - State the plan explicitly — WHAT you need, WHICH tool answers it, and
   the actual call (path / pattern / command) — then run it.
-- Never claim you "showed" the user something you only printed into your own
-  context: when they ask what a tool returned, quote the part that matters and name
-  the file the host left the full output in, so they can open the same thing.  Do
-  not assert how the host rendered a call you cannot see.
+- When the user asks what a tool actually returned, call team_stats { recent: 20 }
+  and paste its table — it names the file each capped result was left in, which IS
+  openable.  Never claim you "showed" them something you only printed into your own
+  context, and do not assert how the host rendered a call you cannot see.
 - Expand colloquial, abbreviated, or aliased terms to their canonical
   forms and search BOTH spellings (short name + full name) before
   concluding "not found".

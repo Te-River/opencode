@@ -41,6 +41,8 @@ const NOT_LEADS = rules(["team_ledger"])
 
 const FILE_READ = rules(["read", "grep", "glob"], "allow")
 
+/** Every role may read the run's accounting; the ledger stays the lead's. */
+const TEAM_READ = rules(["team_stats"], "allow")
 
 export const roles: readonly Role[] = [
   {
@@ -77,6 +79,7 @@ export const roles: readonly Role[] = [
       ...FILE_READ,
       { action: "edit", resource: "*", effect: "deny" },
       ...rules(["shell", "webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },
@@ -95,6 +98,7 @@ export const roles: readonly Role[] = [
       { action: "edit", resource: "*", effect: "allow" },
       { action: "shell", resource: "*", effect: "allow" },
       ...rules(["webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },
@@ -114,6 +118,7 @@ export const roles: readonly Role[] = [
       { action: "edit", resource: "*", effect: "deny" },
       { action: "shell", resource: "*", effect: "allow" },
       ...rules(["webfetch", "websearch", "browser"]),
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },
@@ -133,6 +138,7 @@ export const roles: readonly Role[] = [
       { action: "shell", resource: "*", effect: "allow" },
       ...rules(["webfetch", "websearch"]),
       { action: "browser", resource: "*", effect: "ask" },
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },
@@ -152,6 +158,7 @@ export const roles: readonly Role[] = [
       { action: "edit", resource: "*", effect: "deny" },
       ...rules(["shell"]),
       ...rules(["webfetch", "websearch", "browser"], "ask"),
+      ...TEAM_READ,
       ...NOT_LEADS,
     ],
   },

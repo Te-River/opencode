@@ -117,14 +117,22 @@ selectable as your main agent — the lead invokes them.
 | `/team-test` | tester |
 | `/team-research` | researcher |
 
-Team mode adds one tool of its own:
+Team mode adds two tools of its own:
 
 - `team_ledger` — the lead's task list for the session. Every requirement you add
   mid-run becomes an item rather than replacing the list, and `blocked` is a state
   an item can sit in, not an exit.
+- `team_stats` — reads back the run's own accounting: which results were capped,
+  how many tokens that kept out of the context, and the file each full payload was
+  left in.
 
-One behaviour is worth knowing before you use it:
+Two behaviours are worth knowing before you use it:
 
+- **Oversized results are narrowed for Team agents only.** A tool result above the
+  cap is reduced to the lines the next call needs — a browser snapshot's element
+  references, a report's table rows — and the full text is written under
+  `<data>/team/output/`, which `read` pages back. The global `tool_output` limits
+  are not changed, so no other session behaves differently.
 - **Long deliverables go to the Team board.** Anything over roughly 50 lines
   (a design doc, a review report) is written to `<data>/team/board/` as
   `NN-<role>-<topic>[-rN].md` and reported by path, so it does not ride back inside
