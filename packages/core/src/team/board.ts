@@ -41,13 +41,41 @@ export function note(root: string, ttlDays: number) {
 
 const DAY_MS = 86_400_000
 
-/** A directory that cannot be stat'ed is not stale — an unreadable path must not be deleted. */
-const expired = (directory: string, ttlMs: number) =>
-  Effect.promise(() =>
-    stat(directory)
-      .then((info) => Date.now() - info.mtimeMs > ttlMs)
-      .catch(() => false),
+/**
+ * The newest write time at or below a session directory.
+ *
+ * A directory's own mtime does not move when a file further down is rewritten, and a
+ * board revision lands exactly there (`<session>/<task>/NN-<role>-<topic>-r2.md`).
+ * Judging idleness by the top directory alone would sweep a board the lead is still
+ * reading from, so the walk goes as deep as the board's own layout and no deeper.
+ */
+const DEPTH = 2
+
+async function newestMtime(directory: string, depth: number): Promise<number> {
+  const own = await stat(directory).then((info) => info.mtimeMs).catch(() => 0)
+  if (own === 0) return 0
+  if (depth === 0) return own
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [] as Dirent[])
+  const times = await Promise.all(
+    entries.map((entry) => {
+      const child = path.join(directory, entry.name)
+      return entry.isDirectory()
+        ? newestMtime(child, depth - 1)
+        : stat(child)
+            .then((info) => info.mtimeMs)
+            .catch(() => 0)
+    }),
   )
+  return Math.max(own, ...times)
+}
+
+/** 0 means "this tree could not be read", which is never stale enough to delete. */
+export const stale = async (directory: string, ttlMs: number) => {
+  const newest = await newestMtime(directory, DEPTH)
+  return newest > 0 && Date.now() - newest > ttlMs
+}
+
+const expired = (directory: string, ttlMs: number) => Effect.promise(() => stale(directory, ttlMs))
 
 export const sweep = Effect.fn("TeamBoard.sweep")(function* (root: string, ttlDays: number) {
   const sessions = yield* Effect.promise(() =>
