@@ -88,6 +88,18 @@ export const Plugin = define({
     yield* ctx.tool.hook("execute.after", (event) => {
       if (event.status !== "completed") return Effect.void
       if (!TeamGovern.scoped(String(event.agent))) return Effect.void
+      const given = event.result.content
+      // A tool result is either one string or a part list, and shipped built-ins use
+      // both shapes, so the cap reads either and writes back the shape it found.
+      const parts =
+        given === undefined
+          ? []
+          : typeof given === "string"
+            ? [{ type: "text" as const, text: given }]
+            : given.flatMap((item) => (item.type === "text" ? [item] : []))
+      // A result that also carries a file part (a screenshot) is left alone: pixels
+      // are the point of the call, and a cap cannot describe them.
+      if (parts.length === 0 || (typeof given !== "string" && parts.length !== given.length)) return Effect.void
       return TeamGovern.govern({
         outputs,
         trajectory,
@@ -95,7 +107,7 @@ export const Plugin = define({
         agent: String(event.agent),
         sessionID: String(event.sessionID),
         callID: String(event.id),
-        content: event.result.content,
+        content: parts,
       }).pipe(
         Effect.flatMap((capped) => {
           if (!capped) return Effect.void
@@ -104,9 +116,10 @@ export const Plugin = define({
           // trajectory cannot describe.
           event.result = {
             ...event.result,
-            content: event.result.content.map((item, index) =>
-              index === 0 ? { type: "text" as const, text: capped.rendered } : { type: "text" as const, text: "" },
-            ),
+            content:
+              typeof given === "string"
+                ? capped.rendered
+                : [{ type: "text" as const, text: capped.rendered }, ...parts.slice(1).map(() => ({ type: "text" as const, text: "" }))],
             metadata: { ...event.result.metadata, team_capped: capped.strategy },
           }
           return Effect.void
