@@ -60,9 +60,9 @@ Structured endpoints worth a direct `webfetch` instead of a search:
    - npm search: https://registry.npmjs.org/-/v1/search?text=QUERY
    - gh repos:   https://api.github.com/search/repositories?q=QUERY
    - gh raw:     https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>
-Oversized pages come back as a handle — page with team_fetch (try
-mode:"structure" first).  Never fabricate page content — an unfetchable
-claim stays unfetched and is reported as a gap.
+Oversized pages come back narrowed with the full text left on disk — page that
+file with `read` and its offset/limit.  Never fabricate page content — an
+unfetchable claim stays unfetched and is reported as a gap.
 
 ## Recon batching (Code Mode first)
 Local-repo recon is Code-Mode-first: multi-file reading, bulk grep+read

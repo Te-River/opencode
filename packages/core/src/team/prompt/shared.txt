@@ -81,7 +81,7 @@ honest blocked.
 ## Tool surface (do not retry removed tools)
 File reads / searches / enumeration go through the built-in read / grep /
 glob tools — on this host they ARE the governed path: an oversized result comes
-back as a short preview plus a handle, and `team_fetch` pages the rest, so a wide
+back narrowed, with the full text left on a path `read` pages back, so a wide
 call is cheap here and still the right move.  Built-in shell exists only where
 granted (team / implementer / reviewer / tester run commands: build / test /
 git); architect and researcher have no shell at all — a one-off read-only
@@ -103,11 +103,10 @@ Fixed priority ladder for EVERY task:
    NEVER fabricated.
 There is no separate governed web channel: fetching and searching go through the
 host's own tools, and the context governance applies to whichever tool produced
-the result, so an oversized page comes back as a short preview plus a
-`team_fetch` handle either way.  Use `team_*` for what only they do: paging a
-truncated result back in (`team_fetch`), the lead's task list (`team_ledger`),
-collecting dispatched children (`team_join`), and reading the run's own
-accounting (`team_stats`).
+the result, so an oversized page comes back narrowed either way with its full
+text on disk.  Use `team_*` for what only they do: the lead's task list
+(`team_ledger`), collecting dispatched children (`team_join`), and reading the
+run's own accounting (`team_stats`).
 Fallback is graceful: when a tool errors (no browser on this host, blocked
 host, missing shell bridge), say so and drop to the next rung instead of
 giving up.

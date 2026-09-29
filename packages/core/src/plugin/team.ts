@@ -7,6 +7,7 @@ import { Effect } from "effect"
 import path from "path"
 import { TeamBoard } from "../team/board.js"
 import { TeamCommands } from "../team/commands.js"
+import { TeamGovern } from "../team/govern.js"
 import { TeamRoles } from "../team/roles.js"
 
 /**
@@ -27,7 +28,10 @@ export const Plugin = define({
   id: "opencode.team",
   effect: Effect.fn(function* (ctx) {
     const global = yield* Global.Service
+    const team = TeamBoard.teamRoot(global.data)
     const board = TeamBoard.rootFor(global.data)
+    const outputs = TeamGovern.outputRoot(global.data)
+    const trajectory = TeamGovern.trajectoryRoot(global.data)
 
     yield* ctx.agent.transform((editor) => {
       for (const role of TeamRoles.roles) {
@@ -43,6 +47,11 @@ export const Plugin = define({
           // that already carries one (a user model variant) outranks this.
           if (item.request.settings.temperature === undefined) item.request.settings.temperature = 0.2
           item.permissions.push(...role.permissions)
+          // Every role reads the Team's own files (a capped result points at one);
+          // only the board subdirectory is writable, and only by the roles that
+          // have no other file grant — a spilled payload is an audit trail, and a
+          // role that can edit it can manufacture its own evidence.
+          item.permissions.push({ action: "external_directory", resource: path.join(team, "*"), effect: "allow" })
           if (role.board)
             item.permissions.push(
               { action: "edit", resource: path.join(board, "*"), effect: "allow" },
@@ -70,6 +79,36 @@ export const Plugin = define({
       }
     })
 
+    yield* ctx.tool.hook("execute.after", (event) => {
+      if (event.status !== "completed") return Effect.void
+      if (!TeamGovern.scoped(String(event.agent))) return Effect.void
+      return TeamGovern.govern({
+        outputs,
+        trajectory,
+        tool: event.tool,
+        agent: String(event.agent),
+        sessionID: String(event.sessionID),
+        callID: String(event.id),
+        content: event.result.content,
+      }).pipe(
+        Effect.flatMap((capped) => {
+          if (!capped) return Effect.void
+          // The first text part carries the cap and the rest go empty rather than
+          // disappearing: a result that silently lost a part is a claim the
+          // trajectory cannot describe.
+          event.result = {
+            ...event.result,
+            content: event.result.content.map((item, index) =>
+              index === 0 ? { type: "text" as const, text: capped.rendered } : { type: "text" as const, text: "" },
+            ),
+            metadata: { ...event.result.metadata, team_capped: capped.strategy },
+          }
+          return Effect.void
+        }),
+      )
+    })
+
     yield* TeamBoard.maintenance(board)
+    yield* TeamGovern.maintenance(outputs, trajectory)
   }),
 })

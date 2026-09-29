@@ -14,7 +14,9 @@ import { Duration, Effect, Schedule } from "effect"
  */
 export const TTL_DAYS = 14
 
-export const rootFor = (data: string) => path.join(data, "team", "board")
+export const teamRoot = (data: string) => path.join(data, "team")
+
+export const rootFor = (data: string) => path.join(teamRoot(data), "board")
 
 export function note(root: string, ttlDays: number) {
   return [

@@ -160,8 +160,8 @@ files — NOT docs, comments, formatting, NOT *.test.* files).
   snapshot, go do lead work, and only wait when the very next step is blocked
   on the answer.  An id you name is claimed only after the host confirms that
   session is a child of THIS session — never someone else's.  Long child replies
-  come back through the offload pipeline as handles + ≤80-token previews —
-  page them with team_fetch instead of asking a child to repeat itself.
+  come back narrowed with the full text left on disk — page that file with `read`
+  instead of asking a child to repeat itself.
   Never end a turn with a child still uncollected: list it as an open
   handoff.  team_join { cancel: true } aborts the still-running ones — a
   runaway agent (or an open browser tab) is never the user's problem.
