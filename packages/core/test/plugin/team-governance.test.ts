@@ -125,7 +125,10 @@ describe("TeamPlugin cap", () => {
       // A middle prose line is dropped from the context and only in the file: the cap
       // render echoes the FIRST line on purpose, so that one proves nothing.
       expect(text).not.toContain("row 77 ")
-      expect(await spill(spillPath(text))).toContain("row 77 ")
+      // `Effect.gen` is a generator, not an async function: the spill is read with
+      // `yield* Effect.promise`, and `await` here would not parse.
+      const spilled = yield* Effect.promise(() => spill(spillPath(text)))
+      expect(spilled).toContain("row 77 ")
     }),
   )
 
@@ -139,7 +142,8 @@ describe("TeamPlugin cap", () => {
       if (event.status !== "completed") throw new Error("the hook rewrote a completed result")
       expect(typeof event.result.content).toBe("string")
       expect(textOf(event).startsWith("[team cap]")).toBe(true)
-      expect(await spill(spillPath(textOf(event)))).toContain("row 0 ")
+      const spilled = yield* Effect.promise(() => spill(spillPath(textOf(event))))
+      expect(spilled).toContain("row 0 ")
     }),
   )
 
