@@ -42,7 +42,9 @@ OpenCode comes with three built-in subagents, **General**, **Explore**, and **Sc
 
 ## Built-in
 
-OpenCode comes with two built-in primary agents and three built-in subagents.
+OpenCode comes with two built-in primary agents and three built-in subagents, plus
+Team mode — one lead agent and its five specialists, which you use by switching to
+the lead.
 
 ---
 
@@ -89,6 +91,53 @@ A fast, read-only agent for exploring codebases. Cannot modify files. Use this w
 _Mode_: `subagent`
 
 A read-only agent for external docs and dependency research. Use this when you need to clone a dependency repository into OpenCode's managed cache, inspect library source, or cross-reference local code against upstream implementations without modifying your workspace.
+
+---
+
+### Use team
+
+_Mode_: `primary`
+
+The Team lead orchestrates the other roles instead of doing the work itself: it
+routes a task through a fixed table (architect → implementer → reviewer → tester,
+with researcher for unfamiliar ground), requires your approval before it dispatches
+two or more specialists at once, and synthesizes their structured
+`STATUS / CHANGES / FINDINGS / EVIDENCE / HANDOFF` replies into one deliverable.
+
+Switch to it with `opencode --agent team`, or start a run with `/team-run`. The
+other five roles are subagents and are not selectable as your main agent — the lead
+invokes them.
+
+| Command | Role that owes the deliverable |
+| --- | --- |
+| `/team-run` | team (full workflow) |
+| `/team-plan` | architect |
+| `/team-implement` | implementer |
+| `/team-review` | reviewer |
+| `/team-test` | tester |
+| `/team-research` | researcher |
+
+Team mode adds two tools of its own:
+
+- `team_ledger` — the lead's task list for the session. Every requirement you add
+  mid-run becomes an item rather than replacing the list, and `blocked` is a state
+  an item can sit in, not an exit.
+- `team_stats` — reads back the run's own accounting: which results were capped,
+  how many tokens that kept out of the context, and the file each full payload was
+  left in.
+
+Two behaviours are worth knowing before you use it:
+
+- **Oversized results are narrowed for Team agents only.** A tool result above the
+  cap is reduced to the lines the next call needs — a browser snapshot's element
+  references, a report's table rows — and the full text is written under
+  `<data>/team/output/`, which `read` pages back. The global `tool_output` limits
+  are not changed, so no other session behaves differently.
+- **Long deliverables go to the Team board.** Anything over roughly 50 lines
+  (a design doc, a review report) is written to `<data>/team/board/` as
+  `NN-<role>-<topic>[-rN].md` and reported by path, so it does not ride back inside
+  a chat reply. Every Team role may write there and nowhere else; the directory is
+  swept after 14 days of disuse.
 
 ---
 
