@@ -27,7 +27,7 @@ export const EMPTY: Ledger = { items: [] }
 export const MAX_ITEMS = 200
 
 export type Refusal = { readonly refusal: string }
-export type Added = { readonly ledger: Ledger; readonly item: Item }
+export type Added = { readonly ledger: Ledger; readonly item: Item; readonly message: string }
 export type Changed = { readonly ledger: Ledger; readonly message: string }
 
 /** Re-using an exact text is an interruption arriving again, not a new ask. */
@@ -35,11 +35,13 @@ export function add(ledger: Ledger, text: string): Added | Refusal {
   const trimmed = text.trim()
   if (!trimmed) return { refusal: "ledger add needs a non-empty text" }
   const existing = ledger.items.find((item) => item.text === trimmed)
-  if (existing) return { ledger, item: existing }
+  // The sentence says which of the two happened: the caller cannot tell them apart
+  // from the item, because a folded text is by definition identical to the one stored.
+  if (existing) return { ledger, item: existing, message: `already on the list ${existing.id}: ${existing.text}` }
   if (ledger.items.length >= MAX_ITEMS)
     return { refusal: `ledger is at its cap (${MAX_ITEMS}); resolve or drop an item first` }
   const item: Item = { id: next(ledger.items), text: trimmed, status: "pending" }
-  return { ledger: { items: [...ledger.items, item] }, item }
+  return { ledger: { items: [...ledger.items, item] }, item, message: `added ${item.id}: ${item.text}` }
 }
 
 export function change(

@@ -31,6 +31,10 @@ describe("TeamLedger", () => {
     if ("refusal" in again) throw new Error(again.refusal)
     expect(again.item.id).toBe("T1")
     expect(again.ledger.items.length).toBe(1)
+    // The two outcomes have to read differently: an item that was already there must
+    // not be reported as a new addition, which is what the shared item id made easy.
+    expect(added.message).toBe("added T1: ship the cap")
+    expect(again.message).toBe("already on the list T1: ship the cap")
   })
 
   test("refuses past the cap instead of dropping a requirement", () => {

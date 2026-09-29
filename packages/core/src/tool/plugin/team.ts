@@ -80,11 +80,7 @@ export const Plugin = {
                 const added = TeamLedger.add(current, input.text ?? "")
                 if ("refusal" in added) return yield* new ToolFailure({ message: added.refusal })
                 yield* writeLedger(key, added.ledger)
-                return {
-                  output: {
-                    text: `${added.item.text === (input.text ?? "").trim() ? "added" : "already on the list"} ${added.item.id}: ${added.item.text}`,
-                  },
-                }
+                return { output: { text: added.message } }
               }
               const changed = TeamLedger.change(current, input.id ?? "", {
                 status: input.status,
