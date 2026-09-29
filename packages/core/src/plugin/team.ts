@@ -39,7 +39,7 @@ export const Plugin = define({
           item.name = Agent.Name.make(role.name)
           item.description = role.description
           item.mode = role.mode
-          item.color = Agent.Color.make(role.color)
+          item.color = role.color
           // The lead is the only role that can know the root: a specialist with no
           // shell cannot stamp a session folder, so the dispatch passes it instead.
           item.system = role.id === "team" ? role.system + TeamBoard.note(board, TeamBoard.TTL_DAYS) : role.system
