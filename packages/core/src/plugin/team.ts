@@ -120,7 +120,7 @@ export const Plugin = define({
               typeof given === "string"
                 ? capped.rendered
                 : [{ type: "text" as const, text: capped.rendered }, ...parts.slice(1).map(() => ({ type: "text" as const, text: "" }))],
-            metadata: { ...event.result.metadata, team_capped: capped.strategy },
+            metadata: { ...event.result.metadata, team_capped: capped.entry.strategy },
           }
           return Effect.void
         }),
