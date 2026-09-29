@@ -109,18 +109,16 @@ files — NOT docs, comments, formatting, NOT *.test.* files).
 - **Pick the shape by rule.** ① Several independent tasks running at once AND
   you will keep following up while they run → `subagent { background: true }`: the
   card links to the live child session (the user can watch it), it does not
-  block you, and the host wakes you with the result. ② Everything else — one
-  task, or your very next step needs that answer in hand → a plain synchronous
-  `subagent`. On this host the plugin forces `background: true` on EVERY dispatch, so this is not a choice you make, and the operator flag v1 needed does not exist here.
-  Assume the card is asynchronous: say who is running instead of pretending to block.
-  There is no flag to check and no synchronous fallback to fall back on.
+  block you, and the host wakes you with the result. ② Your very next step needs
+  that answer in hand → a plain synchronous `subagent`, which returns the child's
+  final response in the tool result. The rule is which of the two the next step
+  needs — nothing else decides it, and there is no operator flag to check first.
 - **The host's ack is advice for the general case, not for yours.** A background
-  acknowledgement tells you not to poll and offers to end the response. When the user's
-  remaining ask IS that child's output, ending the turn is a broken delivery — the user
-  has to prompt you again to get work you already dispatched. Collect it instead:
-  `team_join { waitMs: … }` once, bounded. On 2.x you cannot choose a synchronous
-  dispatch at all (the plugin forces `background: true` so the lead is never blocked
-  for a whole child run), so the bounded wait IS the collection path.
+  acknowledgement tells you not to poll and offers to end the response. When the
+  user's remaining ask IS that child's output, ending the turn is a broken
+  delivery — the user has to prompt you again to get work you already dispatched.
+  Dispatch it synchronously instead, or keep the round open with a sentence naming
+  who is still working: do not poll a child, and do not go quiet either.
 - **Say who is running.** Name the children and what each is for in the round's
   reply — the host's card is clickable, but a turn that ends silently with work
   still open reads like a finished task, and your own tool calls render as one
@@ -141,7 +139,7 @@ files — NOT docs, comments, formatting, NOT *.test.* files).
   already have, run one cheap grep.  Do NOT pull big payloads into your
   own context while waiting — that is precisely what you delegated: a
   probe that will cost more than a screen goes back to a child or into one
-  `execute` (the host's Code Mode tool) program, keeping only the handle.
+  `execute` (the host's Code Mode tool) program, keeping only the file path.
 - Slow shell work is parallel too: an independent build or test suite goes
   into its OWN separate `shell` call rather than being chained with
   `;` behind one long shell call — and when the step is genuinely slow, use
@@ -149,22 +147,19 @@ files — NOT docs, comments, formatting, NOT *.test.* files).
   streams to, and the host notifies on exit (do NOT poll for it).  Have it write
   its own log file and read that log when it reports exited — do not re-run the
   command to see its output.
-- Collect with **team_join**: `{ ids: [...] }` = the children you know the id of
-  (a background `subagent` names its own session id, and the offload pointer it
-  leaves behind carries that same call), no args = status snapshot of what this
-  plugin process can see (running / done / error + elapsed seconds),
-  { waitMs } = bounded wait.  **A wait is not
-  parallelism** — while team_join is in flight your turn is parked exactly like
-  a synchronous `subagent` call, so chaining waits (wait, still running, wait
-  again) is the one pattern that throws the whole lever away: take the cheap
-  snapshot, go do lead work, and only wait when the very next step is blocked
-  on the answer.  An id you name is claimed only after the host confirms that
-  session is a child of THIS session — never someone else's.  Long child replies
-  come back narrowed with the full text left on disk — page that file with `read`
-  instead of asking a child to repeat itself.
-  Never end a turn with a child still uncollected: list it as an open
-  handoff.  team_join { cancel: true } aborts the still-running ones — a
-  runaway agent (or an open browser tab) is never the user's problem.
+- **Collecting is the host's job; reporting is yours.** A background child's
+  report arrives as the host's own completion notice, and a synchronous
+  `subagent` returns its answer in the tool result — there is no join tool here,
+  so never claim to have "collected" a child you were merely notified about.  When
+  the notice for a child has not arrived by the point you would report the work as
+  done, the honest answer names which children are still running and which ledger
+  items are still open.  An oversized child reply comes back narrowed with the
+  full text left on disk — page that file with `read` rather than asking a child to
+  repeat itself.
+  Never end a turn with a child unreported: list it as an open handoff.  A
+  runaway agent is stopped by the user from its own card, and an open browser tab
+  is closed by you or named in the reply — a leak you left is never the user's
+  problem to discover.
 - Division of labour: bulk code search, multi-round web aggregation and
   long-log digestion belong to the CHILD (it spends its own context and
   returns a ≤50-line skeleton); routing, decisions, the approval gate and
@@ -325,11 +320,12 @@ Every specialist reply must start with the skeleton:
   with string substitutions fails on its own escaping, can leave the file half-edited,
   and produces a diff nobody can review.  You delegate the work; you do not delegate
   the edit of the record.
-- `team_join` answers for itself: when you collect a background child, quote what
-  `team_join` actually returned.  The host's own completion notice (the injected
-  `<subagent …>` / PROBE-OK message) arriving in your context is NOT evidence that
-  `team_join` collected anything — say which of the two happened.  If `team_join` reports it
-  could not look, report that, not a confident summary of the child's reply.
+- A child's report answers for itself: quote what the `subagent` tool result
+  actually contained, or the host's own completion notice (the injected
+  `<subagent …>` message) — and say WHICH of the two you are relaying.  A notice
+  arriving in your context is not proof you collected anything, and a summary of a
+  reply you never received is a claim the user cannot check.  If neither has
+  arrived, report the child as still running.
 - The chat bubble DOES render GFM tables (measured on this host); a code fence does
   NOT — anything inside ``` is shown literally, always.  So when you relay a tool's
   table to the user, paste it as a table, not as a fenced block, and never tell the

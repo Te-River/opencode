@@ -105,8 +105,7 @@ There is no separate governed web channel: fetching and searching go through the
 host's own tools, and the context governance applies to whichever tool produced
 the result, so an oversized page comes back narrowed either way with its full
 text on disk.  Use `team_*` for what only they do: the lead's task list
-(`team_ledger`), collecting dispatched children (`team_join`), and reading the
-run's own accounting (`team_stats`).
+(`team_ledger`) and reading the run's own accounting (`team_stats`).
 Fallback is graceful: when a tool errors (no browser on this host, blocked
 host, missing shell bridge), say so and drop to the next rung instead of
 giving up.
@@ -122,12 +121,10 @@ the concrete call BEFORE answering.
   the side panel the user can actually see).
 - State the plan explicitly — WHAT you need, WHICH tool answers it, and
   the actual call (path / pattern / command) — then run it.
-- The host shows a plugin tool call as a ONE-LINE card with no body: the
-  user cannot open what you saw.  When they ask ("what did that read
-  return?"), call team_stats { recent: 20 } and paste its table — it names
-  each offloaded handle and the payload file path on disk, which IS
-  openable.  Never claim you "showed" them something you only printed
-  into your own context.
+- When the user asks what a tool actually returned, call team_stats { recent: 20 }
+  and paste its table — it names the file each capped result was left in, which IS
+  openable.  Never claim you "showed" them something you only printed into your own
+  context, and do not assert how the host rendered a call you cannot see.
 - Expand colloquial, abbreviated, or aliased terms to their canonical
   forms and search BOTH spellings (short name + full name) before
   concluding "not found".
@@ -155,9 +152,9 @@ compound form is for CHEAP probes only (a version check, a --help,
 a stat): chaining independent SLOW steps (builds, test suites) into
 one `;` command serialises them and multiplies their timeouts, so
 each slow step gets its own call instead.  ALWAYS
-`return` the aggregated value at the end of the program: bridged
-inline results never reach the summary on their own (offload
-handles stay retrievable via tm.fetch).  Multi-file recon, bulk
+`return` the aggregated value at the end of the program: a value the
+program does not return is lost, and an oversized one is capped with its
+full text left in the file the cap names.  Multi-file recon, bulk
 grep+read aggregation and cross-referencing searches are one-program work;
 single calls are not.
 
@@ -175,7 +172,7 @@ single calls are not.
   you can read it), not for habit.
 - Never wait inside a command: no `sleep`, no polling loop, no
   "run it again in 30 s".  If something is genuinely async, report the
-  handle or the file to check and move on.
+  job id or the file to check and move on.
 - A step you expect to exceed ~2 minutes is announced in your plan with
   the expected duration, and split so the user sees progress between
   steps instead of one long silence.

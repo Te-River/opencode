@@ -36,8 +36,8 @@ const refuse = (actions: string[], effect: Permission["effect"] = "deny") =>
 /** Denied by every role: a child must not re-open the questions the lead owns. */
 const COMMON = refuse(["patch", "skill", "subagent"])
 
-/** The Team helpers that are not the lead's: collecting work is routing, and routing is the lead's. */
-const NOT_LEADS = refuse(["team_join", "team_ledger"])
+/** The ledger is the lead's: an interrupted child must not rewrite the plan it is being judged against. */
+const NOT_LEADS = refuse(["team_ledger"])
 
 const FILE_READ = refuse(["read", "grep", "glob"], "allow")
 
