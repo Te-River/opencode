@@ -4,6 +4,7 @@ import { TeamCap } from "@opencode/core/team/cap"
 import { TeamCommands } from "@opencode/core/team/commands"
 import { TeamGovern } from "@opencode/core/team/govern"
 import { TeamLedger } from "@opencode/core/team/ledger"
+import { TeamPrompts } from "@opencode/core/team/prompts"
 import { Effect } from "effect"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises"
@@ -237,4 +238,35 @@ describe("TeamCommands", () => {
   test("an empty argument still yields a usable prompt", () => {
     expect(TeamCommands.render(named("team-test"), "   ").length).toBeGreaterThan(40)
   })
+})
+
+/**
+ * The prompts are assets, not prose. A stale tool name in them is an agent calling a
+ * tool that does not exist, and an absolute date is a claim that goes wrong while the
+ * process is still running — the drifts that survive a careful port, so they fail a
+ * test rather than depend on a reader remembering to check.
+ */
+describe("Team prompt assets", () => {
+  const texts: [string, string][] = [
+    ["lead", TeamPrompts.lead],
+    ...Object.entries(TeamPrompts.specialists),
+    ...TeamCommands.commands.map((command) => [command.name, command.template] as [string, string]),
+  ]
+
+  const rules: [string, RegExp][] = [
+    ["names no tool with a tm_ prefix", /tm_[a-z]/],
+    ["names only tools this build registers", /team_fetch|team_join|tm_memory|board_write/],
+    ["bakes in no absolute date", /20\d\d-\d\d-\d\d|20\d\d年\d+月/],
+    ["carries no non-ASCII report wording", /[\u3400-\u9fff]/],
+    ["has no unfilled placeholder", /\bTODO\b|\bFIXME\b|\bXXX\b|<[A-Z]{3,}>/],
+    ["refers to no plugin-only knob or gate verb", /TM_[A-Z_]+|\bR6\b|PROBE-OK|allow_host/],
+  ]
+
+  for (const [label, pattern] of rules) {
+    test(label, () => {
+      const offender = texts.find(([, text]) => pattern.test(text))
+      // Name the asset and quote the match, so the failure says where to look.
+      expect(offender === undefined ? "" : `${offender[0]}: ${pattern.exec(offender[1])?.[0]}`).toBe("")
+    })
+  }
 })
