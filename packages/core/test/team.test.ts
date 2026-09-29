@@ -196,6 +196,8 @@ describe("TeamBoard", () => {
   test("roots stay inside the Team directory", () => {
     const team = TeamBoard.teamRoot("/data")
     expect(path.basename(team)).toBe("team")
+    // Compared through path: `path.join` yields this platform's separator, so a
+    // slash literal would fail on a Windows runner.
     expect(path.dirname(TeamBoard.rootFor("/data"))).toBe(team)
     expect(path.basename(TeamBoard.rootFor("/data"))).toBe("board")
   })
