@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { TeamBoard } from "@opencode/core/team/board"
 import { TeamCap } from "@opencode/core/team/cap"
+import { TeamCommands } from "@opencode/core/team/commands"
 import { TeamGovern } from "@opencode/core/team/govern"
 import { TeamLedger } from "@opencode/core/team/ledger"
 
@@ -150,5 +151,25 @@ describe("TeamBoard", () => {
   test("roots stay inside the Team directory", () => {
     expect(TeamBoard.teamRoot("/data")).toBe("/data/team")
     expect(TeamBoard.rootFor("/data")).toBe("/data/team/board")
+  })
+})
+
+describe("TeamCommands", () => {
+  const named = (name: string) => TeamCommands.commands.find((command) => command.name === name)!
+
+  test("the argument lands where the template asks for it", () => {
+    const text = TeamCommands.render(named("team-plan"), "add retry handling")
+    expect(text).toContain("add retry handling")
+    expect(text).not.toContain("$ARGUMENTS")
+    // The routing line is what stops a `build` session answering a Team command itself.
+    expect(text).toContain("`architect`")
+  })
+
+  test("the lead command names the lead", () => {
+    expect(TeamCommands.render(named("team-run"), "ship it")).toContain("Team lead")
+  })
+
+  test("an empty argument still yields a usable prompt", () => {
+    expect(TeamCommands.render(named("team-test"), "   ").length).toBeGreaterThan(40)
   })
 })
