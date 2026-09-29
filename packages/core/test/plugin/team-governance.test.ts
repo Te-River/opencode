@@ -41,8 +41,8 @@ const run = Effect.fnUntraced(function* () {
   yield* TeamPlugin.Plugin.effect(
     host({
       agent: {
-        get: () => undefined,
-        list: () => [],
+        get: () => Effect.die("unused agent.get"),
+        list: () => Effect.die("unused agent.list"),
         reload: () => Effect.die("unused agent.reload"),
         transform: (callback) => {
           callback({
@@ -56,7 +56,7 @@ const run = Effect.fnUntraced(function* () {
         },
       },
       command: {
-        list: () => [],
+        list: () => Effect.die("unused command.list"),
         reload: () => Effect.die("unused command.reload"),
         transform: (callback) => {
           callback({ add: () => {} })
