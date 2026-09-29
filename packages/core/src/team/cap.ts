@@ -18,19 +18,21 @@ export * as TeamCap from "./cap.js"
 
 /** Same cost basis the Team's own accounting uses: a CJK glyph is ~1 token, other text ~4 chars. */
 export const estimateTokens = (text: string) => {
-  let cjk = 0
-  let other = 0
-  for (const char of text) {
-    if (cjkRange.test(char)) cjk += 1
-    else other += 1
-  }
-  return cjk + Math.ceil(other / 4)
+  const cjk = cjkCount(text)
+  return cjk + Math.ceil((text.length - cjk) / 4)
 }
 
-const cjkRange = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/
+const cjkCount = (text: string) => (text.match(cjkGlobal) ?? []).length
 
-/** Bracketed tokens the next call addresses a page or a table row by. */
-const ADDRESSING = /\[(?:ref|uid|e)\s*=?[^\]]*\]|\[[A-Za-z0-9_-]{2,}\]/
+const cjkRange = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/
+const cjkGlobal = new RegExp(cjkRange.source, "g")
+
+/**
+ * Bracketed tokens the next call addresses a page or a table row by. Deliberately
+ * narrow: `[INFO]` in a build log is not a reference, so this only ever decides the
+ * strategy for a tool whose output the model addresses WITH — see `browserTool`.
+ */
+const REF_TOKEN = /\[(?:ref|uid|e)[^\]]*\]|(?:ref|uid)=[\w-]+/
 const TABLE_LINE = /^\s*\|.*\|\s*$/
 
 /** Tier thresholds, in tokens: structured payloads are costlier per line than prose. */
@@ -55,15 +57,22 @@ export interface Capped {
  * Returns undefined when the text should reach the model unchanged — including
  * when it is large but has no structure worth preserving (a short result is never
  * rewritten to save a rounding error).
+ *
+ * `tool` is part of the decision, not a label: keeping "reference-looking" lines is
+ * only right for output the model addresses WITH, so the caller names the tool.
  */
-export function cap(text: string): Capped | undefined {
+export function cap(text: string, tool?: string): Capped | undefined {
+  // A token count never exceeds the character count, so anything shorter than the
+  // cheapest tier cannot possibly be over any threshold. That is the whole cost of
+  // the common case: no per-line scan, no match array, no split.
+  if (text.length < THRESHOLD_DATA) return undefined
+  const lines = text.split("\n")
   const tokensBefore = estimateTokens(text)
-  const strategy = choose(text, tokensBefore)
+  const strategy = choose(lines, tokensBefore, tool)
   if (!strategy) return undefined
   // The kept lines are bounded by the tier they were measured against, so a cap
   // can never re-introduce a result as large as the one it replaced.
   const budget = strategy === "addressing" ? THRESHOLD_DATA : strategy === "table" ? THRESHOLD_TEXT : PREVIEW_TOKENS
-  const lines = text.split("\n")
   const kept = keep(strategy, lines, budget)
   if (kept.length === 0) return undefined
   const rendered = render(strategy, lines, kept, tokensBefore)
@@ -77,21 +86,26 @@ export function cap(text: string): Capped | undefined {
   }
 }
 
-function choose(text: string, tokens: number): Strategy | undefined {
-  const lines = text.split("\n")
-  // Addressing lines are load-bearing for the NEXT call, so this fires at the
-  // data tier: a snapshot nobody can address by is worth nothing at any size.
-  if (lines.some((line) => ADDRESSING.test(line))) return tokens >= THRESHOLD_DATA ? "addressing" : undefined
+function choose(lines: readonly string[], tokens: number, tool?: string): Strategy | undefined {
+  // Addressing lines are load-bearing for the NEXT call, so this fires at the data
+  // tier: a snapshot nobody can address by is worth nothing at any size. Outside a
+  // browser tool the same pattern would be `[INFO]` in a build log, and keeping
+  // "ref-like" lines there would drop exactly the prose the reader came for.
+  if (browserTool(tool) && lines.some((line) => REF_TOKEN.test(line)))
+    return tokens >= THRESHOLD_DATA ? "addressing" : undefined
   const tables = lines.filter((line) => TABLE_LINE.test(line)).length
   if (tables >= 3) return tokens >= THRESHOLD_TEXT ? "table" : undefined
   return tokens >= THRESHOLD_TEXT ? "summary" : undefined
 }
 
+/** The host's browser tools are namespaced, so the effective name starts with it. */
+const browserTool = (tool?: string) => tool !== undefined && /^browser/.test(tool)
+
 function keep(strategy: Strategy, lines: string[], budget: number) {
   if (strategy === "addressing")
     // A snapshot whose refs still exceed the budget keeps the head of the list;
     // the dropped remainder is in the spill file, which the render names.
-    return limit(lines.filter((line) => ADDRESSING.test(line)), budget)
+    return limit(lines.filter((line) => REF_TOKEN.test(line)), budget)
   if (strategy === "table") {
     const tables = lines.filter((line) => TABLE_LINE.test(line))
     const first = lines.findIndex((line) => TABLE_LINE.test(line))

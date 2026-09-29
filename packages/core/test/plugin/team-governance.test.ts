@@ -81,9 +81,14 @@ const run = Effect.fnUntraced(function* () {
   return { fire: toolHook }
 })
 
-function completed(agent: Agent.ID, callID: string, content: Tool.Result["content"]): ToolHooks["execute.after"] {
+function completed(
+  agent: Agent.ID,
+  callID: string,
+  content: Tool.Result["content"],
+  tool = "browser.snapshot",
+): ToolHooks["execute.after"] {
   return {
-    tool: "read",
+    tool,
     input: {},
     sessionID,
     agent,

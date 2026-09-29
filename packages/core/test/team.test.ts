@@ -24,7 +24,7 @@ describe("TeamCap", () => {
   test("keeps the addressing lines a snapshot is clicked by", () => {
     const refs = ["[ref=b12] Submit order", "[ref=b40] Cancel", "[ref=b77] Total 12.00"]
     const text = [filler(120, 90), ...refs].join("\n")
-    const capped = TeamCap.cap(text)
+    const capped = TeamCap.cap(text, "browser.snapshot")
     expect(capped?.strategy).toBe("addressing")
     expect(capped?.keptLines).toBe(refs.length)
     for (const ref of refs) expect(capped?.rendered).toContain(ref)
@@ -32,10 +32,24 @@ describe("TeamCap", () => {
     expect(capped!.droppedLines).toBe(120)
   })
 
+  test("does not treat bracketed log tokens as references", () => {
+    // The same payload from a tool whose output nobody addresses BY: `[INFO]` lines
+    // are prose, and keeping "ref-like" lines here would drop what the reader came
+    // for. Under the text tier it should reach the model whole.
+    const log = [
+      filler(120, 90),
+      "[INFO] compiled 42 modules",
+      "[WARN] bundle size grew 8%",
+    ].join("\n")
+    expect(TeamCap.cap(log, "shell")).toBeUndefined()
+    // And the identical text is capped only because the tool is a browser snapshot.
+    expect(TeamCap.cap(log, "browser.snapshot")?.strategy).toBe("addressing")
+  })
+
   test("keeps every table row and pays with the prose", () => {
     const rows = Array.from({ length: 60 }, (_, index) => `| item-${index} | ${index * 7} | ok |`)
     const text = ["# Report", filler(300, 60), "## Findings", ...rows].join("\n")
-    const capped = TeamCap.cap(text)
+    const capped = TeamCap.cap(text, "webfetch")
     expect(capped?.strategy).toBe("table")
     // A table with a row missing is not smaller, it is broken.
     expect(rows.every((row) => capped!.rendered.includes(row))).toBe(true)
@@ -44,7 +58,7 @@ describe("TeamCap", () => {
   })
 
   test("summarises prose it cannot structure", () => {
-    const capped = TeamCap.cap(filler(300, 60))
+    const capped = TeamCap.cap(filler(300, 60), "shell")
     expect(capped?.strategy).toBe("summary")
     expect(capped!.keptLines).toBeLessThan(30)
     expect(capped!.rendered).toContain("[team cap]")
@@ -53,18 +67,18 @@ describe("TeamCap", () => {
   test("measures a CJK result by the glyph, not by four characters", () => {
     const text = "记".repeat(TeamCap.THRESHOLD_TEXT)
     expect(TeamCap.estimateTokens(text)).toBe(TeamCap.THRESHOLD_TEXT)
-    expect(TeamCap.cap(text)?.tokensBefore).toBe(TeamCap.THRESHOLD_TEXT)
+    expect(TeamCap.cap(text, "read")?.tokensBefore).toBe(TeamCap.THRESHOLD_TEXT)
     // The same character count in Latin is four times cheaper, and would not fire.
     expect(TeamCap.estimateTokens("x".repeat(TeamCap.THRESHOLD_TEXT))).toBe(1_000)
   })
 
   test("a cap is never as large as the result it replaced", () => {
     const inputs = [
-      `${filler(120, 90)}\n[ref=b1] go`,
-      ["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n"),
+      [`${filler(120, 90)}\n[ref=b1] go`, "browser.snapshot"] as const,
+      [["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n"), "read"] as const,
     ]
-    for (const text of inputs) {
-      const capped = TeamCap.cap(text)
+    for (const [text, tool] of inputs) {
+      const capped = TeamCap.cap(text, tool)
       if (!capped) continue
       expect(capped.tokensAfter).toBeLessThan(capped.tokensBefore)
     }

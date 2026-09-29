@@ -55,7 +55,7 @@ export const govern = Effect.fn("TeamGovern.govern")(function* (input: {
 }) {
   if (input.content.some((item) => item.type !== "text")) return undefined
   const text = input.content.map((item) => item.text ?? "").join("\n")
-  const capped = TeamCap.cap(text)
+  const capped = TeamCap.cap(text, input.tool)
   if (!capped) return undefined
   const file = path.join(input.outputs, `${input.callID}.txt`)
   // A spill that failed is not a cap: pointing the agent at a file that does not
