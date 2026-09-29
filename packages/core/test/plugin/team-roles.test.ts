@@ -91,8 +91,7 @@ const run = Effect.fnUntraced(function* () {
 const invoke = (text: string): Command.Invocation => ({
   sessionID,
   prompt: { text },
-  // Which delivery the host picks is the caller's business, not this test's.
-  delivery: "steer" as Command.Invocation["delivery"],
+  delivery: "steer",
 })
 
 describe("TeamPlugin", () => {
