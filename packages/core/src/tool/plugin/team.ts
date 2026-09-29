@@ -116,7 +116,7 @@ export const Plugin = {
           options: { namespace: "team", codemode: true },
           execute: (input) =>
             TeamGovern.readTrajectory(trajectory, input.files ?? 3).pipe(
-              Effect.as((entries) => ({ output: { text: renderStats(entries, input.recent ?? 0) } })),
+              Effect.map((entries) => ({ output: { text: renderStats(entries, input.recent ?? 0) } })),
             ),
         })
       })
