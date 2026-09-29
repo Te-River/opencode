@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { TeamBoard } from "@opencode/core/team/board"
 import { TeamCap } from "@opencode/core/team/cap"
+import { TeamCommands } from "@opencode/core/team/commands"
 import { TeamGovern } from "@opencode/core/team/govern"
 import { TeamLedger } from "@opencode/core/team/ledger"
 
@@ -23,7 +24,7 @@ describe("TeamCap", () => {
   test("keeps the addressing lines a snapshot is clicked by", () => {
     const refs = ["[ref=b12] Submit order", "[ref=b40] Cancel", "[ref=b77] Total 12.00"]
     const text = [filler(120, 90), ...refs].join("\n")
-    const capped = TeamCap.cap(text)
+    const capped = TeamCap.cap(text, "browser.snapshot")
     expect(capped?.strategy).toBe("addressing")
     expect(capped?.keptLines).toBe(refs.length)
     for (const ref of refs) expect(capped?.rendered).toContain(ref)
@@ -31,10 +32,30 @@ describe("TeamCap", () => {
     expect(capped!.droppedLines).toBe(120)
   })
 
+  test("does not treat bracketed log tokens as references", () => {
+    // `[INFO]`/`[WARN]` are prose markers and this payload sits under the text tier,
+    // so it reaches the model whole no matter which tool produced it.
+    const log = [
+      filler(120, 90),
+      "[INFO] compiled 42 modules",
+      "[WARN] bundle size grew 8%",
+    ].join("\n")
+    expect(TeamCap.cap(log, "shell")).toBeUndefined()
+    expect(TeamCap.cap(log, "browser.snapshot")).toBeUndefined()
+  })
+
+  test("keeps reference lines only for the tool whose output they address", () => {
+    const snapshot = [filler(120, 90), "[ref=b12] Submit order"].join("\n")
+    expect(TeamCap.cap(snapshot, "browser.snapshot")?.strategy).toBe("addressing")
+    // The same bytes from another tool: nothing here is addressed BY a reference, so
+    // keeping only the ref line would throw away what the agent came to read.
+    expect(TeamCap.cap(snapshot, "shell")).toBeUndefined()
+  })
+
   test("keeps every table row and pays with the prose", () => {
     const rows = Array.from({ length: 60 }, (_, index) => `| item-${index} | ${index * 7} | ok |`)
     const text = ["# Report", filler(300, 60), "## Findings", ...rows].join("\n")
-    const capped = TeamCap.cap(text)
+    const capped = TeamCap.cap(text, "webfetch")
     expect(capped?.strategy).toBe("table")
     // A table with a row missing is not smaller, it is broken.
     expect(rows.every((row) => capped!.rendered.includes(row))).toBe(true)
@@ -43,7 +64,7 @@ describe("TeamCap", () => {
   })
 
   test("summarises prose it cannot structure", () => {
-    const capped = TeamCap.cap(filler(300, 60))
+    const capped = TeamCap.cap(filler(300, 60), "shell")
     expect(capped?.strategy).toBe("summary")
     expect(capped!.keptLines).toBeLessThan(30)
     expect(capped!.rendered).toContain("[team cap]")
@@ -52,18 +73,18 @@ describe("TeamCap", () => {
   test("measures a CJK result by the glyph, not by four characters", () => {
     const text = "记".repeat(TeamCap.THRESHOLD_TEXT)
     expect(TeamCap.estimateTokens(text)).toBe(TeamCap.THRESHOLD_TEXT)
-    expect(TeamCap.cap(text)?.tokensBefore).toBe(TeamCap.THRESHOLD_TEXT)
+    expect(TeamCap.cap(text, "read")?.tokensBefore).toBe(TeamCap.THRESHOLD_TEXT)
     // The same character count in Latin is four times cheaper, and would not fire.
     expect(TeamCap.estimateTokens("x".repeat(TeamCap.THRESHOLD_TEXT))).toBe(1_000)
   })
 
   test("a cap is never as large as the result it replaced", () => {
     const inputs = [
-      `${filler(120, 90)}\n[ref=b1] go`,
-      ["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n"),
+      [`${filler(120, 90)}\n[ref=b1] go`, "browser.snapshot"] as const,
+      [["# R", filler(200, 60), "| a | b |", "| c | d |", "| e | f |"].join("\n"), "read"] as const,
     ]
-    for (const text of inputs) {
-      const capped = TeamCap.cap(text)
+    for (const [text, tool] of inputs) {
+      const capped = TeamCap.cap(text, tool)
       if (!capped) continue
       expect(capped.tokensAfter).toBeLessThan(capped.tokensBefore)
     }
@@ -89,6 +110,20 @@ describe("TeamGovern scope", () => {
   test("lives under the Team root", () => {
     expect(TeamGovern.outputRoot("/data")).toBe("/data/team/output")
     expect(TeamGovern.trajectoryRoot("/data")).toBe("/data/team/trajectory")
+  })
+
+  test("a call id cannot steer the spill path", () => {
+    // The id comes from the provider and lands in a filename the agent is told to
+    // read, so the properties that matter are asserted rather than a hand-counted
+    // rewrite of one sample.
+    for (const callID of ["../../etc/passwd", "a/b/c", "..", "id.with.dots", ""]) {
+      const name = TeamGovern.spillName(callID)
+      expect(name).not.toContain("/")
+      expect(name).not.toContain("..")
+      expect(name.endsWith(".txt")).toBe(true)
+    }
+    expect(TeamGovern.spillName("")).toBe("call.txt")
+    expect(TeamGovern.spillName("call_abc-123")).toBe("call_abc-123.txt")
   })
 })
 
@@ -150,5 +185,25 @@ describe("TeamBoard", () => {
   test("roots stay inside the Team directory", () => {
     expect(TeamBoard.teamRoot("/data")).toBe("/data/team")
     expect(TeamBoard.rootFor("/data")).toBe("/data/team/board")
+  })
+})
+
+describe("TeamCommands", () => {
+  const named = (name: string) => TeamCommands.commands.find((command) => command.name === name)!
+
+  test("the argument lands where the template asks for it", () => {
+    const text = TeamCommands.render(named("team-plan"), "add retry handling")
+    expect(text).toContain("add retry handling")
+    expect(text).not.toContain("$ARGUMENTS")
+    // The routing line is what stops a `build` session answering a Team command itself.
+    expect(text).toContain("`architect`")
+  })
+
+  test("the lead command names the lead", () => {
+    expect(TeamCommands.render(named("team-run"), "ship it")).toContain("Team lead")
+  })
+
+  test("an empty argument still yields a usable prompt", () => {
+    expect(TeamCommands.render(named("team-test"), "   ").length).toBeGreaterThan(40)
   })
 })

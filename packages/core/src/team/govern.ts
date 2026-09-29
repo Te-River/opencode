@@ -55,9 +55,9 @@ export const govern = Effect.fn("TeamGovern.govern")(function* (input: {
 }) {
   if (input.content.some((item) => item.type !== "text")) return undefined
   const text = input.content.map((item) => item.text ?? "").join("\n")
-  const capped = TeamCap.cap(text)
+  const capped = TeamCap.cap(text, input.tool)
   if (!capped) return undefined
-  const file = path.join(input.outputs, `${input.callID}.txt`)
+  const file = path.join(input.outputs, spillName(input.callID))
   // A spill that failed is not a cap: pointing the agent at a file that does not
   // exist would send it looking for nothing, so the original text stands.
   const written = yield* Effect.promise(() =>
@@ -88,9 +88,17 @@ export const govern = Effect.fn("TeamGovern.govern")(function* (input: {
   return { rendered: `${capped.rendered}\n\nfull text: ${file}`, file, entry }
 })
 
+/**
+ * A provider's tool-call id is an unvalidated string — `Tool.CallID` is only a
+ * branded `string` — and the spill file sits where the agent can read it back, so
+ * the name is ours to make safe. Dots are folded away entirely rather than escaped:
+ * a `..` surviving as a path step would write the payload outside the output
+ * directory, and the extension is added here instead of trusted from the id.
+ */
+export const spillName = (callID: string) => `${callID.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80) || "call"}.txt`
+
 /** One file per day, so a long-lived process cannot grow one unbounded line. */
-export const day = (at: number) => {
-  const stamp = new Date(at)
+export const day = (at: number) => {  const stamp = new Date(at)
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}.jsonl`
 }
