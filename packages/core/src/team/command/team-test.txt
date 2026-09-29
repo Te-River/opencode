@@ -1,0 +1,12 @@
+Write comprehensive tests for the following scope.
+
+## Scope
+$ARGUMENTS
+
+If no specific scope is given, identify the most recently modified source files and write tests for them.
+
+## Requirements
+- Use the project's existing test framework and conventions.
+- Cover happy path, edge cases, and error paths.
+- Each test must be deterministic and test exactly one behavior.
+- Use descriptive test names.

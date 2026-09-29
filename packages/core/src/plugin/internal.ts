@@ -79,6 +79,7 @@ import { ReadTool } from "../tool/plugin/read.js"
 import { ShellTool } from "../tool/plugin/shell.js"
 import { SkillTool } from "../tool/plugin/skill.js"
 import { SubagentTool } from "../tool/plugin/subagent.js"
+import { TeamTools } from "../tool/plugin/team.js"
 import { Tool } from "../tool.js"
 import { ToolOutput } from "../tool-output.js"
 import { WebFetchTool } from "../tool/plugin/webfetch.js"
@@ -90,6 +91,7 @@ import BrowserPlugin from "@opencode/plugin-browser"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
 import { PlanPlugin } from "./plan.js"
+import { TeamPlugin } from "./team.js"
 import { ModelsDevPlugin } from "./models-dev.js"
 import { McpCodeModeDefaultsPlugin } from "./mcp-codemode-defaults.js"
 import { ProviderPlugins } from "./provider.js"
@@ -220,6 +222,7 @@ const pre = [
   VcsGitPlugin.Plugin,
   AgentPlugin.Plugin,
   PlanPlugin.Plugin,
+  TeamPlugin.Plugin,
   CommandPlugin.Plugin,
   SkillPlugin.Plugin,
   VcsHgPlugin.Plugin,
@@ -241,6 +244,7 @@ const pre = [
   ShellTool.Plugin,
   SkillTool.Plugin,
   SubagentTool.Plugin,
+  TeamTools.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
   WriteTool.Plugin,

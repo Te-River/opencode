@@ -1,0 +1,14 @@
+Analyze the following task and produce a detailed implementation plan.
+
+## Task
+$ARGUMENTS
+
+## Required output
+1. **Overview** — What we are building and why.
+2. **Architecture** — Module structure, key interfaces, data flow.
+3. **File manifest** — Every file to create or modify, with a one-line summary.
+4. **Task breakdown** — Ordered steps the implementer can execute, noting dependencies.
+5. **Risks & open questions** — Anything uncertain.
+
+Read existing project files as needed to ground your plan in reality.
+Do not write implementation code — only the plan.
