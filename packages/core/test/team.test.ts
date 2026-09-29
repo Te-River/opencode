@@ -105,6 +105,20 @@ describe("TeamGovern scope", () => {
     expect(TeamGovern.outputRoot("/data")).toBe("/data/team/output")
     expect(TeamGovern.trajectoryRoot("/data")).toBe("/data/team/trajectory")
   })
+
+  test("a call id cannot steer the spill path", () => {
+    // The id comes from the provider and lands in a filename the agent is told to
+    // read, so the properties that matter are asserted rather than a hand-counted
+    // rewrite of one sample.
+    for (const callID of ["../../etc/passwd", "a/b/c", "..", "id.with.dots", ""]) {
+      const name = TeamGovern.spillName(callID)
+      expect(name).not.toContain("/")
+      expect(name).not.toContain("..")
+      expect(name.endsWith(".txt")).toBe(true)
+    }
+    expect(TeamGovern.spillName("")).toBe("call.txt")
+    expect(TeamGovern.spillName("call_abc-123")).toBe("call_abc-123.txt")
+  })
 })
 
 describe("TeamLedger", () => {
