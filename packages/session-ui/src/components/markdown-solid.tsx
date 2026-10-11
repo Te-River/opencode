@@ -1,4 +1,4 @@
-import { For, onMount } from "solid-js"
+import { For, onMount, untrack } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { Dynamic, render } from "solid-js/web"
 
@@ -27,7 +27,12 @@ export function createMarkdownRenderer(root: HTMLDivElement, html: string, words
 
   return {
     update(next: string, nextWords: boolean, animate = true) {
-      setNodes(reconcile(parseMarkdownNodes(next, nextWords, animate), { key: "key" }))
+      const parsed = parseMarkdownNodes(next, nextWords, animate)
+
+      // A delta only changes the tail of the block, so most of the parsed tree is identical to what
+      // the store already holds. Handing `reconcile` the store's own nodes for those regions keeps it
+      // (and `unwrap`) from walking the whole array on every delta.
+      setNodes(reconcile(untrack(() => reuseNodes(nodes, parsed)), { key: "key" }))
     },
     dispose,
   }
@@ -105,4 +110,48 @@ function parseNode(node: Node, key: string, words: boolean, animate: boolean, in
         : {}),
     },
   ]
+}
+
+function reuseNodes(previous: readonly MarkdownNode[], parsed: readonly MarkdownNode[]): MarkdownNode[] {
+  return parsed.map((node, index) => reuseNode(previous[index], node))
+}
+
+// A delta only changes the tail of a block, so most of the parsed tree is identical to what the
+// store already holds. Keeping the store's own nodes for those regions lets `reconcile` (and the
+// `unwrap` it runs first) skip them instead of walking the whole array on every delta.
+function reuseNode(previous: MarkdownNode | undefined, node: MarkdownNode): MarkdownNode {
+  if (!previous) return node
+  if (sameNode(previous, node)) return previous
+  if (previous.type !== "element" || node.type !== "element") return node
+
+  return { ...node, children: reuseNodes(previous.children, node.children) }
+}
+
+function sameNode(previous: MarkdownNode, node: MarkdownNode): boolean {
+  if (previous.key !== node.key || previous.type !== node.type) return false
+
+  if (node.type === "text") return previous.type === "text" && previous.text === node.text
+
+  if (node.type === "word")
+    return previous.type === "word" && previous.text === node.text && !!previous.animate === !!node.animate
+
+  if (previous.type !== "element") return false
+
+  return (
+    previous.tag === node.tag &&
+    !!previous.animate === !!node.animate &&
+    sameAttributes(previous.attributes, node.attributes) &&
+    previous.children.length === node.children.length &&
+    previous.children.every((child, index) => {
+      const next = node.children[index]
+
+      return !!next && sameNode(child, next)
+    })
+  )
+}
+
+function sameAttributes(previous: Record<string, string>, next: Record<string, string>) {
+  const keys = Object.keys(previous)
+
+  return keys.length === Object.keys(next).length && keys.every((key) => previous[key] === next[key])
 }
