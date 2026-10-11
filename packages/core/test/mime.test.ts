@@ -34,3 +34,18 @@ describe("Mime.detect", () => {
     })
   })
 })
+
+describe("Mime.detect with a path", () => {
+  it("does not treat a UTF-16LE text file as audio", () => {
+    const utf16le = bytes(0xff, 0xfe, 0x68, 0x00, 0x69, 0x00)
+    expect(Mime.detect(utf16le)).toBe("application/octet-stream")
+    expect(Mime.detect(utf16le, "note.txt")).toBe("text/plain")
+  })
+
+  it("uses the extension to disambiguate an audio-only MP4 container", () => {
+    expect(Mime.detect(ftyp("isom"), "clip.m4a")).toBe("audio/mp4")
+    expect(Mime.detect(ftyp("mp42"), "clip.m4a")).toBe("audio/mp4")
+    expect(Mime.detect(ftyp("isom"), "sound.aac")).toBe("audio/aac")
+    expect(Mime.detect(ftyp("isom"), "clip.mp4")).toBe("video/mp4")
+  })
+})
