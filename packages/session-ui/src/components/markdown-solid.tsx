@@ -1,4 +1,4 @@
-import { For, onMount, untrack } from "solid-js"
+import { batch, For, onMount } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { Dynamic, render } from "solid-js/web"
 
@@ -14,8 +14,16 @@ type MarkdownNode =
   | { key: string; type: "text"; text: string }
   | { key: string; type: "word"; text: string; animate?: true }
 
+// A store path from the root array down to the array the walk is currently in.
+type NodePath = (string | number)[]
+
+// `setStore` takes the path as arguments, so a dynamic path needs one cast.
+type SetNode = (path: NodePath, value: unknown) => void
+
 export function createMarkdownRenderer(root: HTMLDivElement, html: string, words: boolean) {
-  const [nodes, setNodes] = createStore(parseMarkdownNodes(html, words))
+  const tree = parseMarkdownNodes(html, words)
+  const [nodes, setNodes] = createStore(tree)
+  const set: SetNode = (path, value) => (setNodes as (...args: unknown[]) => void)(...path, value)
   let ready = false
 
   const dispose = render(
@@ -29,10 +37,10 @@ export function createMarkdownRenderer(root: HTMLDivElement, html: string, words
     update(next: string, nextWords: boolean, animate = true) {
       const parsed = parseMarkdownNodes(next, nextWords, animate)
 
-      // A delta only changes the tail of the block, so most of the parsed tree is identical to what
-      // the store already holds. Handing `reconcile` the store's own nodes for those regions keeps it
-      // (and `unwrap`) from walking the whole array on every delta.
-      setNodes(reconcile(untrack(() => reuseNodes(nodes, parsed)), { key: "key" }))
+      // One batch keeps the appended children from re-diffing the block once per write.
+      if (batch(() => appendTail(tree, parsed, [], set))) return
+
+      setNodes(reconcile(parsed, { key: "key" }))
     },
     dispose,
   }
@@ -112,19 +120,47 @@ function parseNode(node: Node, key: string, words: boolean, animate: boolean, in
   ]
 }
 
-function reuseNodes(previous: readonly MarkdownNode[], parsed: readonly MarkdownNode[]): MarkdownNode[] {
-  return parsed.map((node, index) => reuseNode(previous[index], node))
+// A delta only appends to the tail of the block, so the store can be updated by path instead of
+// handing the whole tree to `reconcile`. `previous` is the store's own plain tree, so the walk
+// never reads through the store proxy, and only the changed node and the new children are written.
+// Returns false when the delta changed more than the tail, which leaves the caller to `reconcile`.
+function appendTail(previous: readonly MarkdownNode[], parsed: readonly MarkdownNode[], path: NodePath, set: SetNode): boolean {
+  if (parsed.length < previous.length) return false
+  for (let index = 0; index < previous.length - 1; index++) if (!sameNode(previous[index], parsed[index])) return false
+
+  if (previous.length > 0) {
+    const last = previous.length - 1
+    if (!sameNode(previous[last], parsed[last]) && !appendTailNode(previous[last], parsed[last], path.concat(last), set))
+      return false
+  }
+
+  for (let index = previous.length; index < parsed.length; index++) set(path.concat(index), parsed[index])
+  return true
 }
 
-// A delta only changes the tail of a block, so most of the parsed tree is identical to what the
-// store already holds. Keeping the store's own nodes for those regions lets `reconcile` (and the
-// `unwrap` it runs first) skip them instead of walking the whole array on every delta.
-function reuseNode(previous: MarkdownNode | undefined, node: MarkdownNode): MarkdownNode {
-  if (!previous) return node
-  if (sameNode(previous, node)) return previous
-  if (previous.type !== "element" || node.type !== "element") return node
+// The live node is the one that changes on every delta, so it is extended in place: a grown word
+// keeps its span, and an element keeps its children and only gains the new ones.
+function appendTailNode(previous: MarkdownNode, parsed: MarkdownNode, path: NodePath, set: SetNode): boolean {
+  if (previous.key !== parsed.key) return false
 
-  return { ...node, children: reuseNodes(previous.children, node.children) }
+  if (previous.type === "element" && parsed.type === "element") {
+    if (previous.tag !== parsed.tag || !sameAttributes(previous.attributes, parsed.attributes)) return false
+
+    return appendTail(previous.children, parsed.children, path.concat("children"), set)
+  }
+
+  if (previous.type === "text" && parsed.type === "text") {
+    set(path.concat("text"), parsed.text)
+    return true
+  }
+
+  if (previous.type === "word" && parsed.type === "word") {
+    set(path.concat("text"), parsed.text)
+    if (!!previous.animate !== !!parsed.animate) set(path.concat("animate"), parsed.animate)
+    return true
+  }
+
+  return false
 }
 
 function sameNode(previous: MarkdownNode, node: MarkdownNode): boolean {
