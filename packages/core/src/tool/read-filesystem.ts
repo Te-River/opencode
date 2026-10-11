@@ -31,6 +31,7 @@ export const MEDIA_MIMES = new Set([
   "audio/ogg",
   "audio/flac",
   "audio/mp4",
+  "audio/aac",
   "video/mp4",
   "video/quicktime",
   "video/webm",
@@ -150,7 +151,7 @@ export const read = Effect.fn("ReadTool.read")(function* (
   )
   if (first instanceof ListPage) return first
 
-  const media = Mime.detect(first.bytes)
+  const media = Mime.detect(first.bytes, input)
   if (MEDIA_MIMES.has(media)) {
     if (first.info.size > MAX_MEDIA_INGEST_BYTES)
       return yield* new MediaIngestLimitError({ resource, maximumBytes: MAX_MEDIA_INGEST_BYTES })

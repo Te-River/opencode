@@ -487,4 +487,34 @@ describe("ReadToolFileSystem", () => {
       ])
     }),
   )
+
+  it.effect("reads an audio-only MP4 as audio, not video", () =>
+    Effect.gen(function* () {
+      const { environment, files, directory } = yield* fixture
+      const file = path.join(directory, "sound.m4a")
+      const content = Uint8Array.of(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d)
+      yield* files.writeFile(file, content)
+
+      const result = yield* ReadToolFileSystem.read(environment, absolute(file), "sound.m4a")
+
+      expect(result).toMatchObject({
+        type: "file",
+        content: Buffer.from(content).toString("base64"),
+        encoding: "base64",
+        mime: "audio/mp4",
+      })
+    }),
+  )
+
+  it.effect("does not treat a UTF-16LE text file as audio", () =>
+    Effect.gen(function* () {
+      const { environment, files, directory } = yield* fixture
+      const file = path.join(directory, "note.txt")
+      yield* files.writeFile(file, Uint8Array.of(0xff, 0xfe, 0x68, 0x00, 0x69, 0x00))
+
+      const error = yield* ReadToolFileSystem.read(environment, absolute(file), "note.txt").pipe(Effect.flip)
+
+      expect(error).toBeInstanceOf(ReadToolFileSystem.BinaryFileError)
+    }),
+  )
 })
