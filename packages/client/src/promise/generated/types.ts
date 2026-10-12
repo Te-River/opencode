@@ -4491,3 +4491,68 @@ export type ConfigShellsOutput = Array<ConfigShellOption>
 export type ConfigUpdateInput = { readonly shell: string | null }
 
 export type ConfigUpdateOutput = void
+
+export type SessionGoalID = string
+
+export type SessionGoalReason = { code: string; message: string }
+
+export type SessionGoalTodoInput = {
+  content: string
+  status: "pending" | "in_progress" | "completed" | "cancelled"
+  acceptance?: string
+}
+
+export type SessionGoalTodoVerification = {
+  position: number
+  status: "pending" | "in_progress" | "completed" | "cancelled"
+  feedback: string
+}
+
+export type SessionGoalSnapshot = {
+  id: SessionGoalID
+  revision: number
+  objective: string
+  phase: "active" | "paused" | "blocked" | "complete"
+  blockedReason?: SessionGoalReason
+  maxGoalRounds: number
+}
+
+export type SessionGoalCleared = {
+  id: EventID
+  created: number
+  metadata?: { [x: string]: any }
+  type: "session.goal.cleared"
+  durable: { aggregateID: string; seq: EventSeq; version: 1 }
+  location?: LocationRef
+  data: { sessionID: SessionID; goalID: SessionGoalID; revision: number }
+}
+
+export type SessionTodoUpdated = {
+  id: EventID
+  created: number
+  metadata?: { [x: string]: any }
+  type: "session.todo.updated"
+  durable: { aggregateID: string; seq: EventSeq; version: 1 }
+  location?: LocationRef
+  data: { sessionID: SessionID; revision: number; todos: Array<SessionGoalTodoInput> }
+}
+
+export type SessionTodoVerified = {
+  id: EventID
+  created: number
+  metadata?: { [x: string]: any }
+  type: "session.todo.verified"
+  durable: { aggregateID: string; seq: EventSeq; version: 1 }
+  location?: LocationRef
+  data: { sessionID: SessionID; revision: number; items: Array<SessionGoalTodoVerification> }
+}
+
+export type SessionGoalUpdated = {
+  id: EventID
+  created: number
+  metadata?: { [x: string]: any }
+  type: "session.goal.updated"
+  durable: { aggregateID: string; seq: EventSeq; version: 1 }
+  location?: LocationRef
+  data: { sessionID: SessionID; snapshot: SessionGoalSnapshot }
+}

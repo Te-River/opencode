@@ -14,6 +14,7 @@ import type { Workspace } from "@opencode/schema/workspace"
 import { Timestamps } from "../database/schema.sql.js"
 import type { Instruction } from "@opencode/schema/instruction"
 import type { Session } from "@opencode/schema/session"
+import type { SessionGoal } from "@opencode/schema/session-goal"
 import type { CompactionPayload, MovePayload, SyntheticPayload } from "@opencode/schema/session-inbox"
 import type { RevertV1 } from "@opencode/schema/session-revert"
 import type { Schema } from "effect"
@@ -188,3 +189,38 @@ export const BlobRefTable = sqliteTable(
     index("blob_ref_session_seq_idx").on(table.session_id, table.seq),
   ],
 )
+
+/** One row per session: the current goal. Cleared goals leave no row; the event log is the audit trail. */
+export const SessionGoalTable = sqliteTable("session_goal", {
+  session_id: text()
+    .$type<SessionSchema.ID>()
+    .primaryKey()
+    .references(() => SessionTable.id, { onDelete: "cascade" }),
+  goal_id: text().$type<SessionGoal.ID>().notNull(),
+  revision: integer().notNull(),
+  objective: text().notNull(),
+  phase: text().$type<SessionGoal.Phase>().notNull(),
+  blocked_reason: text({ mode: "json" }).$type<SessionGoal.Reason>(),
+  max_goal_rounds: integer().notNull().default(8),
+  rounds: integer().notNull().default(0),
+  ...Timestamps,
+})
+
+/** Whole-list replacement keyed by array index; there is no per-item identity. */
+export const SessionTodoTable = sqliteTable(
+  "session_todo",
+  {
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    position: integer().notNull(),
+    content: text().notNull(),
+    status: text().$type<SessionGoal.TodoStatus>().notNull(),
+    acceptance: text(),
+    feedback: text(),
+    ...Timestamps,
+  },
+  (table) => [primaryKey({ columns: [table.session_id, table.position] })],
+)
+
