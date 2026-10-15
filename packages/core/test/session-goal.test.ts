@@ -9,7 +9,9 @@ import { Project } from "@opencode/core/project"
 import { ProjectTable } from "@opencode/core/project/sql"
 import { AbsolutePath } from "@opencode/core/schema"
 import { SessionEvent } from "@opencode/core/session/event"
+import { SessionExecution } from "@opencode/core/session/execution"
 import { SessionGoal } from "@opencode/core/session/goal"
+import { SessionGoalActivation } from "@opencode/core/session/goal-activation"
 import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionSchema } from "@opencode/core/session/schema"
 import { SessionGoalTable, SessionTable } from "@opencode/core/session/sql"
@@ -246,6 +248,71 @@ describe("SessionGoal", () => {
       })
       expect(yield* SessionGoal.read(db, sessionID)).toBeUndefined()
       expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([])
+    }),
+  )
+})
+
+const serviceIt = testEffect(
+  AppNodeBuilder.build(
+    LayerNode.group([Database.node, Bus.node, SessionProjector.node, SessionGoal.node, SessionGoalActivation.node]),
+    [Bus.node.replace(Bus.configured({ persist: true })), SessionExecution.node.replace(SessionExecution.noopLayer)],
+  ),
+)
+
+describe("SessionGoal.Service", () => {
+  serviceIt.effect("set arms the goal, pause disarms it, resume re-arms it, and clear disarms it", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const activation = yield* SessionGoalActivation.Service
+
+      expect(yield* goal.update(sessionID, { action: "set", objective: "ship it" })).toMatchObject({
+        revision: 1,
+        phase: "active",
+      })
+      expect(yield* activation.isArmed(sessionID)).toBe(true)
+
+      // `pause` is the user's cancel: it disarms the goal in this process.
+      expect(yield* goal.update(sessionID, { action: "pause" })).toMatchObject({ revision: 2, phase: "paused" })
+      expect(yield* activation.isArmed(sessionID)).toBe(false)
+
+      expect(yield* goal.update(sessionID, { action: "resume" })).toMatchObject({ revision: 3, phase: "active" })
+      expect(yield* activation.isArmed(sessionID)).toBe(true)
+
+      yield* goal.update(sessionID, { action: "clear" })
+      expect(yield* activation.isArmed(sessionID)).toBe(false)
+      expect(yield* goal.read(sessionID)).toBeUndefined()
+    }),
+  )
+
+  serviceIt.effect("readState reports the goal, its todo list, and process-local arming", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      yield* goal.replaceTodo(sessionID, [{ content: "first", status: "pending", acceptance: "tests pass" }])
+
+      expect(yield* goal.readState(sessionID)).toMatchObject({
+        goal: { revision: 2, objective: "ship it" },
+        rounds: 0,
+        maxGoalRounds: 8,
+        armed: true,
+        todo: [{ position: 0, content: "first", status: "pending", acceptance: "tests pass" }],
+      })
+    }),
+  )
+
+  serviceIt.effect("edit without a goal and a stale expectedRevision are conflicts", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const conflict = (input: SessionGoal.UpdateInput) => goal.update(sessionID, input).pipe(Effect.flip)
+
+      expect((yield* conflict({ action: "edit", objective: "x" }))._tag).toBe("SessionGoal.ConflictError")
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      expect((yield* conflict({ action: "edit", objective: "x", expectedRevision: 99 }))._tag).toBe(
+        "SessionGoal.ConflictError",
+      )
     }),
   )
 })

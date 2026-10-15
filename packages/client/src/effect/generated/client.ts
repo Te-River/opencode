@@ -93,6 +93,12 @@ import type {
   SessionInterruptOutput,
   SessionBackgroundInput,
   SessionBackgroundOutput,
+  SessionGoalGetInput,
+  SessionGoalGetOutput,
+  SessionGoalUpdateInput,
+  SessionGoalUpdateOutput,
+  SessionTodoReplaceInput,
+  SessionTodoReplaceOutput,
   SessionMessageGetInput,
   SessionMessageGetOutput,
   SessionFormListInput,
@@ -742,6 +748,32 @@ const EndpointSessionBackground = (raw: RawClient["server.session"]) => (input: 
     raw["session.background"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointSessionGoalGet = (raw: RawClient["server.session"]) => (input: SessionGoalGetInput) =>
+  preserveEffect<SessionGoalGetOutput>()(
+    raw["session.goal.get"]({ params: { sessionID: input["sessionID"] } }).pipe(
+      Effect.mapError(mapClientError),
+      Effect.map((value) => value.data),
+    ),
+  )
+
+const EndpointSessionGoalUpdate = (raw: RawClient["server.session"]) => (input: SessionGoalUpdateInput) =>
+  preserveEffect<SessionGoalUpdateOutput>()(
+    raw["session.goal.update"]({
+      params: { sessionID: input["sessionID"] },
+      payload: { action: input["action"], objective: input["objective"], expectedRevision: input["expectedRevision"] },
+    }).pipe(
+      Effect.mapError(mapClientError),
+      Effect.map((value) => value.data),
+    ),
+  )
+
+const EndpointSessionTodoReplace = (raw: RawClient["server.session"]) => (input: SessionTodoReplaceInput) =>
+  preserveEffect<SessionTodoReplaceOutput>()(
+    raw["session.todo.replace"]({ params: { sessionID: input["sessionID"] }, payload: { todos: input["todos"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
 const EndpointSessionMessageGet = (raw: RawClient["server.session"]) => (input: SessionMessageGetInput) =>
   preserveEffect<SessionMessageGetOutput>()(
     raw["session.message"]({ params: { sessionID: input["sessionID"], messageID: input["messageID"] } }).pipe(
@@ -852,6 +884,8 @@ const adaptGroupSession = (raw: RawClient["server.session"]) => ({
   log: EndpointSessionLog(raw),
   interrupt: EndpointSessionInterrupt(raw),
   background: EndpointSessionBackground(raw),
+  goal: { get: EndpointSessionGoalGet(raw), update: EndpointSessionGoalUpdate(raw) },
+  todo: { replace: EndpointSessionTodoReplace(raw) },
   message: { get: EndpointSessionMessageGet(raw) },
   form: {
     list: EndpointSessionFormList(raw),

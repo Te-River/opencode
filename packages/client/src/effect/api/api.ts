@@ -1315,6 +1315,30 @@ export type SessionBackgroundOperation<E = never> = (
   input: SessionBackgroundInput,
 ) => Effect.Effect<SessionBackgroundOutput, E>
 
+export type SessionGoalGetInput = { readonly sessionID: Session.ID }
+export type SessionGoalGetOutput = SessionGoal.State
+export type SessionGoalGetOperation<E = never> = (input: SessionGoalGetInput) => Effect.Effect<SessionGoalGetOutput, E>
+
+export type SessionGoalUpdateInput = {
+  readonly sessionID: Session.ID
+  readonly action: "set" | "clear" | "edit" | "pause" | "resume"
+  readonly objective?: string | undefined
+  readonly expectedRevision?: number | undefined
+}
+export type SessionGoalUpdateOutput = SessionGoal.Snapshot
+export type SessionGoalUpdateOperation<E = never> = (
+  input: SessionGoalUpdateInput,
+) => Effect.Effect<SessionGoalUpdateOutput, E>
+
+export type SessionTodoReplaceInput = {
+  readonly sessionID: Session.ID
+  readonly todos: ReadonlyArray<SessionGoal.TodoInput>
+}
+export type SessionTodoReplaceOutput = void
+export type SessionTodoReplaceOperation<E = never> = (
+  input: SessionTodoReplaceInput,
+) => Effect.Effect<SessionTodoReplaceOutput, E>
+
 export type SessionMessageGetInput = { readonly sessionID: Session.ID; readonly messageID: SessionMessage.ID }
 export type SessionMessageGetOutput = SessionMessage.Info
 export type SessionMessageGetOperation<E = never> = (
@@ -1420,6 +1444,8 @@ export interface SessionApi<E = never> {
   readonly log: SessionLogOperation<E>
   readonly interrupt: SessionInterruptOperation<E>
   readonly background: SessionBackgroundOperation<E>
+  readonly goal: { readonly get: SessionGoalGetOperation<E>; readonly update: SessionGoalUpdateOperation<E> }
+  readonly todo: { readonly replace: SessionTodoReplaceOperation<E> }
   readonly message: { readonly get: SessionMessageGetOperation<E> }
   readonly form: {
     readonly list: SessionFormListOperation<E>
