@@ -61,3 +61,18 @@ export const TodoVerification = Schema.Struct({
   status: TodoStatus,
   feedback: Schema.String,
 }).annotate({ identifier: "SessionGoal.TodoVerification" })
+
+/**
+ * The goal read model. `createdAt` is the durable row's creation time (the only
+ * source of elapsed time), and `armed` is process-local truth: whether this
+ * OpenCode process is currently willing to run the goal.
+ */
+export interface State extends Schema.Schema.Type<typeof State> {}
+export const State = Schema.Struct({
+  goal: optional(Snapshot),
+  createdAt: optional(Schema.Number),
+  rounds: Schema.Number,
+  maxGoalRounds: Schema.Number,
+  armed: Schema.Boolean,
+  todo: Schema.Array(TodoItem),
+}).annotate({ identifier: "SessionGoal.State" })

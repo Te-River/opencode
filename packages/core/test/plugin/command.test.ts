@@ -6,6 +6,7 @@ import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { Location } from "@opencode/core/location"
 import { Mcp } from "@opencode/core/mcp/index"
 import { CommandPlugin } from "@opencode/core/plugin/command"
+import { SessionGoal } from "@opencode/core/session/goal"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/schema/session"
 import { SessionInbox } from "@opencode/schema/session-inbox"
@@ -25,10 +26,23 @@ const locationLayer = Layer.succeed(
   Location.Service,
   Location.Service.of(location({ directory }, { projectDirectory: project })),
 )
+// The plugin only needs the goal service to register the command; the stub keeps the
+// test graph to the command surface.
+const goalLayer = Layer.succeed(
+  SessionGoal.Service,
+  SessionGoal.Service.of({
+    read: () => Effect.succeed(undefined),
+    readTodo: () => Effect.succeed([]),
+    readState: () => Effect.die("unused SessionGoal.readState"),
+    update: () => Effect.die("unused SessionGoal.update"),
+    replaceTodo: () => Effect.die("unused SessionGoal.replaceTodo"),
+  }),
+)
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Command.node, Mcp.node, Bus.node]), [
+  AppNodeBuilder.build(LayerNode.group([Command.node, Mcp.node, Bus.node, SessionGoal.node]), [
     Mcp.node.replace(emptyMcpLayer),
     Location.node.replace(locationLayer),
+    SessionGoal.node.replace(goalLayer),
   ]),
 )
 

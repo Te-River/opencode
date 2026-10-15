@@ -1,13 +1,21 @@
 export * as SessionGoal from "./goal.js"
 
 import { and, asc, eq, sql } from "drizzle-orm"
-import { Effect } from "effect"
-import type { Database } from "../database/database.js"
+import { Context, Effect, Layer, Schema } from "effect"
+import { makeGlobalNode } from "@opencode/util/effect/app-node"
+import { Bus } from "../bus.js"
+import { Database } from "../database/database.js"
 import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"
+import { SessionEvent } from "./event.js"
+import { SessionExecution } from "./execution.js"
+import { SessionGoalActivation } from "./goal-activation.js"
 import { SessionGoalTable, SessionTodoTable } from "./sql.js"
 import type { SessionSchema } from "./schema.js"
 
 type DatabaseService = Database.Interface["db"]
+
+/** Rounds a goal may run before it is pushed to `blocked`; the driver enforces it. */
+export const DefaultMaxGoalRounds = 8
 
 /**
  * Upsert the current goal. The bus projects each committed event exactly once and in
@@ -185,4 +193,142 @@ function fromRow(row: typeof SessionGoalTable.$inferSelect): SessionGoalSchema.S
     blockedReason: row.blocked_reason ?? undefined,
     maxGoalRounds: row.max_goal_rounds,
   }
+}
+
+/** A goal mutation rejected because the goal is missing, in the wrong phase, or stale. */
+export class ConflictError extends Schema.TaggedError<ConflictError>()("SessionGoal.ConflictError", {
+  message: Schema.String,
+}) {}
+
+export interface UpdateInput {
+  readonly action: "set" | "clear" | "edit" | "pause" | "resume"
+  readonly objective?: string
+  readonly expectedRevision?: number
+}
+
+export interface Interface {
+  readonly read: (sessionID: SessionSchema.ID) => Effect.Effect<SessionGoalSchema.Snapshot | undefined>
+  readonly readTodo: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<SessionGoalSchema.TodoItem>>
+  readonly readState: (sessionID: SessionSchema.ID) => Effect.Effect<SessionGoalSchema.State>
+  readonly update: (
+    sessionID: SessionSchema.ID,
+    input: UpdateInput,
+  ) => Effect.Effect<SessionGoalSchema.Snapshot, ConflictError>
+  readonly replaceTodo: (
+    sessionID: SessionSchema.ID,
+    todos: ReadonlyArray<SessionGoalSchema.TodoInput>,
+  ) => Effect.Effect<void, ConflictError>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@opencode/SessionGoal") {}
+
+const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const bus = yield* Bus.Service
+    const execution = yield* SessionExecution.Service
+    const activation = yield* SessionGoalActivation.Service
+
+    const readState = Effect.fn("SessionGoal.readState")(function* (sessionID: SessionSchema.ID) {
+      const row = yield* db
+        .select()
+        .from(SessionGoalTable)
+        .where(eq(SessionGoalTable.session_id, sessionID))
+        .get()
+        .pipe(Effect.orDie)
+      return {
+        goal: row ? fromRow(row) : undefined,
+        createdAt: row?.time_created,
+        rounds: row?.rounds ?? 0,
+        maxGoalRounds: row?.max_goal_rounds ?? DefaultMaxGoalRounds,
+        armed: yield* activation.isArmed(sessionID),
+        todo: yield* readTodo(db, sessionID),
+      }
+    })
+
+    const update = Effect.fn("SessionGoal.update")(function* (sessionID: SessionSchema.ID, input: UpdateInput) {
+      const current = yield* read(db, sessionID)
+      if (input.expectedRevision !== undefined && current?.revision !== input.expectedRevision)
+        return yield* new ConflictError({
+          message: `Goal revision changed: expected ${input.expectedRevision}, found ${current?.revision ?? "none"}`,
+        })
+      if (input.action === "set") {
+        const snapshot: SessionGoalSchema.Snapshot = {
+          id: SessionGoalSchema.ID.create(),
+          revision: 1,
+          objective: yield* requireObjective(input),
+          phase: "active",
+          maxGoalRounds: DefaultMaxGoalRounds,
+        }
+        yield* publishUpdated(bus, sessionID, snapshot)
+        yield* activation.arm(sessionID)
+        return snapshot
+      }
+      const goal = yield* requireGoal(current)
+      if (input.action === "edit") {
+        const snapshot = { ...goal, revision: goal.revision + 1, objective: yield* requireObjective(input) }
+        yield* publishUpdated(bus, sessionID, snapshot)
+        return snapshot
+      }
+      if (input.action === "pause") {
+        // Disarm first: it is the only action that stops the goal immediately, and
+        // it commits separately from the durable phase. Then cancel the running turn.
+        yield* activation.disarm(sessionID)
+        const snapshot = { ...goal, revision: goal.revision + 1, phase: "paused" as const }
+        yield* publishUpdated(bus, sessionID, snapshot)
+        yield* Effect.uninterruptible(execution.interrupt(sessionID, { reason: "user" }))
+        return snapshot
+      }
+      if (input.action === "resume") {
+        const snapshot = { ...goal, revision: goal.revision + 1, phase: "active" as const }
+        yield* publishUpdated(bus, sessionID, snapshot)
+        yield* activation.arm(sessionID)
+        return snapshot
+      }
+      yield* activation.disarm(sessionID)
+      yield* bus.publish(SessionEvent.Goal.Cleared, {
+        sessionID,
+        goalID: goal.id,
+        revision: goal.revision + 1,
+      })
+      return { ...goal, revision: goal.revision + 1 }
+    })
+
+    const replaceTodo = Effect.fn("SessionGoal.replaceTodo")(function* (
+      sessionID: SessionSchema.ID,
+      todos: ReadonlyArray<SessionGoalSchema.TodoInput>,
+    ) {
+      const goal = yield* requireGoal(yield* read(db, sessionID))
+      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: goal.revision + 1, todos })
+    })
+
+    return Service.of({
+      read: (sessionID) => read(db, sessionID),
+      readTodo: (sessionID) => readTodo(db, sessionID),
+      readState,
+      update,
+      replaceTodo,
+    })
+  }),
+)
+
+export const node = makeGlobalNode({
+  service: Service,
+  layer,
+  deps: [Database.node, Bus.node, SessionExecution.node, SessionGoalActivation.node],
+})
+
+function requireGoal(goal: SessionGoalSchema.Snapshot | undefined) {
+  return goal ? Effect.succeed(goal) : Effect.fail(new ConflictError({ message: "No goal is set for this session" }))
+}
+
+function requireObjective(input: UpdateInput) {
+  return input.objective !== undefined && input.objective.length > 0
+    ? Effect.succeed(input.objective)
+    : Effect.fail(new ConflictError({ message: `Goal action "${input.action}" requires an objective` }))
+}
+
+function publishUpdated(bus: Bus.Interface, sessionID: SessionSchema.ID, snapshot: SessionGoalSchema.Snapshot) {
+  return bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot })
 }

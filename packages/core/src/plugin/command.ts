@@ -5,6 +5,7 @@ import { Effect, Stream } from "effect"
 import { Bus } from "../bus.js"
 import { Location } from "../location.js"
 import { Mcp } from "../mcp/index.js"
+import { SessionGoal } from "../session/goal.js"
 import PROMPT_INITIALIZE from "./command/initialize.txt"
 import PROMPT_REVIEW from "./command/review.txt"
 
@@ -14,6 +15,7 @@ export const Plugin = define({
     const location = yield* Location.Service
     const mcp = yield* Mcp.Service
     const bus = yield* Bus.Service
+    const goal = yield* SessionGoal.Service
     const loaded = { prompts: [] as Mcp.Prompt[] }
     yield* bus.subscribe(Mcp.PromptsChanged).pipe(
       Stream.runForEach(() =>
@@ -52,6 +54,12 @@ export const Plugin = define({
             })
             .pipe(Effect.asVoid),
       })
+      editor.add({
+        name: "goal",
+        description: "set, clear, edit, pause, or resume the session goal",
+        execute: (input) =>
+          goal.update(input.sessionID, parseGoal(input.prompt.text)).pipe(Effect.asVoid),
+      })
       for (const prompt of loaded.prompts) {
         editor.add({
           name: mcpCommandName(prompt.server, prompt.name),
@@ -87,6 +95,15 @@ function append(template: string, input: string) {
   const value = input.trim()
   if (template.includes("$ARGUMENTS")) return template.replaceAll("$ARGUMENTS", () => value)
   return [template, value].filter(Boolean).join("\n\n")
+}
+
+/** `/goal [objective|clear|edit <objective>|pause|resume]`; a bare objective sets the goal. */
+function parseGoal(text: string): SessionGoal.UpdateInput {
+  const trimmed = text.trim()
+  const [head, ...rest] = trimmed.split(/\s+/)
+  if (head === "clear" || head === "pause" || head === "resume") return { action: head }
+  if (head === "edit") return { action: "edit", objective: rest.join(" ") }
+  return { action: "set", objective: trimmed }
 }
 
 function parseArguments(input: string) {
