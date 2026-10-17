@@ -47,6 +47,9 @@ it.live("serves the session goal and todo endpoints", () =>
     expect(set.data).toMatchObject({ revision: 1, objective: "ship it", phase: "active" })
     expect(Schema.decodeUnknownSync(GoalState)((yield* request(goal, "GET")).body).data.armed).toBe(true)
 
+    // `resume` on an active goal is a phase conflict.
+    expect((yield* request(goal, "POST", { action: "resume" })).status).toBe(409)
+
     // The todo list is replaced wholesale.
     expect(
       (yield* request(todo, "PUT", { todos: [{ content: "first", status: "pending", acceptance: "tests pass" }] }))
@@ -56,10 +59,18 @@ it.live("serves the session goal and todo endpoints", () =>
       { position: 0, content: "first", status: "pending", acceptance: "tests pass" },
     ])
 
+    // A stale CAS token on the todo path is a conflict.
+    expect(
+      (yield* request(todo, "PUT", { todos: [], expectedRevision: 1, expectedGoalID: set.data.id })).status,
+    ).toBe(409)
+
     // `pause` is the user's cancel: it disarms and bumps the revision.
     const paused = Schema.decodeUnknownSync(GoalSnapshot)((yield* request(goal, "POST", { action: "pause" })).body)
     expect(paused.data).toMatchObject({ revision: 3, phase: "paused" })
     expect(Schema.decodeUnknownSync(GoalState)((yield* request(goal, "GET")).body).data.armed).toBe(false)
+
+    // `pause` on a paused goal is a phase conflict.
+    expect((yield* request(goal, "POST", { action: "pause" })).status).toBe(409)
 
     // `resume` re-arms.
     const resumed = Schema.decodeUnknownSync(GoalSnapshot)((yield* request(goal, "POST", { action: "resume" })).body)
@@ -76,6 +87,23 @@ it.live("serves the session goal and todo endpoints", () =>
     expect((yield* request(goal, "POST", { action: "edit", objective: "x" })).status).toBe(409)
     yield* request(goal, "POST", { action: "set", objective: "ship it" })
     expect((yield* request(goal, "POST", { action: "edit", objective: "x", expectedRevision: 99 })).status).toBe(409)
+
+    // A CAS token from the previous goal is rejected even at the same revision.
+    const first = Schema.decodeUnknownSync(GoalSnapshot)(
+      (yield* request(goal, "POST", { action: "set", objective: "first" })).body,
+    )
+    const second = Schema.decodeUnknownSync(GoalSnapshot)(
+      (yield* request(goal, "POST", { action: "set", objective: "second" })).body,
+    )
+    expect(second.data.revision).toBe(1)
+    expect(
+      (yield* request(goal, "POST", {
+        action: "edit",
+        objective: "x",
+        expectedRevision: 1,
+        expectedGoalID: first.data.id,
+      })).status,
+    ).toBe(409)
 
     // An unknown session is not found.
     expect((yield* request(`/api/session/${Session.ID.create()}/goal`, "GET")).status).toBe(404)

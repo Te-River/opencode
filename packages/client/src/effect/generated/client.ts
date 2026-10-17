@@ -760,7 +760,12 @@ const EndpointSessionGoalUpdate = (raw: RawClient["server.session"]) => (input: 
   preserveEffect<SessionGoalUpdateOutput>()(
     raw["session.goal.update"]({
       params: { sessionID: input["sessionID"] },
-      payload: { action: input["action"], objective: input["objective"], expectedRevision: input["expectedRevision"] },
+      payload: {
+        action: input["action"],
+        objective: input["objective"],
+        expectedRevision: input["expectedRevision"],
+        expectedGoalID: input["expectedGoalID"],
+      },
     }).pipe(
       Effect.mapError(mapClientError),
       Effect.map((value) => value.data),
@@ -769,9 +774,14 @@ const EndpointSessionGoalUpdate = (raw: RawClient["server.session"]) => (input: 
 
 const EndpointSessionTodoReplace = (raw: RawClient["server.session"]) => (input: SessionTodoReplaceInput) =>
   preserveEffect<SessionTodoReplaceOutput>()(
-    raw["session.todo.replace"]({ params: { sessionID: input["sessionID"] }, payload: { todos: input["todos"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["session.todo.replace"]({
+      params: { sessionID: input["sessionID"] },
+      payload: {
+        todos: input["todos"],
+        expectedRevision: input["expectedRevision"],
+        expectedGoalID: input["expectedGoalID"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointSessionMessageGet = (raw: RawClient["server.session"]) => (input: SessionMessageGetInput) =>

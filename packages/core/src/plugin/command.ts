@@ -97,12 +97,15 @@ function append(template: string, input: string) {
   return [template, value].filter(Boolean).join("\n\n")
 }
 
-/** `/goal [objective|clear|edit <objective>|pause|resume]`; a bare objective sets the goal. */
+/**
+ * `/goal [objective|clear|edit <objective>|pause|resume]`; a bare objective sets
+ * the goal. The subcommands match exactly, so `/goal clear the flaky tests` sets
+ * that objective instead of clearing the goal.
+ */
 function parseGoal(text: string): SessionGoal.UpdateInput {
   const trimmed = text.trim()
-  const [head, ...rest] = trimmed.split(/\s+/)
-  if (head === "clear" || head === "pause" || head === "resume") return { action: head }
-  if (head === "edit") return { action: "edit", objective: rest.join(" ") }
+  if (trimmed === "clear" || trimmed === "pause" || trimmed === "resume") return { action: trimmed }
+  if (trimmed === "edit" || trimmed.startsWith("edit ")) return { action: "edit", objective: trimmed.slice(4).trim() }
   return { action: "set", objective: trimmed }
 }
 
