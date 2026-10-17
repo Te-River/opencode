@@ -109,6 +109,15 @@ function ComposerDocksPreview(props: DockArgs) {
   // A permission decision also reports a response submit, so only a submit without a decision answers the question.
   let deciding = false
 
+  const goal = {
+    state: () => undefined,
+    interrupted: () => false,
+    pause: () => undefined,
+    resume: () => undefined,
+    edit: () => undefined,
+    clear: () => undefined,
+  }
+
   const region = {
     state: {
       questionRequest: () =>
@@ -138,6 +147,7 @@ function ComposerDocksPreview(props: DockArgs) {
         setState("permission", false)
       },
       blocked,
+      goal,
     },
     centered: () => true,
     onResponseSubmit: () =>
@@ -148,6 +158,7 @@ function ComposerDocksPreview(props: DockArgs) {
     setDockRef() {},
     child: () => state.subagent,
     showComposer: () => !blocked() || state.subagent,
+    goal,
   } satisfies SessionComposerRegionViewController
 
   const queue: SessionQueueView = {

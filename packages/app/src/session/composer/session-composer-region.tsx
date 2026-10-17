@@ -1,5 +1,6 @@
 import { createMemo, Show, type JSX } from "solid-js"
 import { SessionElicitationDock } from "@/session/requests/session-elicitation-dock"
+import { SessionGoalDock } from "@/session/goal/session-goal-dock"
 import { SessionPermissionDock } from "@/session/requests/session-permission-dock"
 import { SessionQuestionDock } from "@/session/requests/session-question-dock"
 import { questionMotion } from "@/session/requests/question-motion"
@@ -9,18 +10,12 @@ import { ComposerMorph, Grow } from "./spring-height"
 
 type SessionComposerRegionState = Pick<
   SessionComposerRegionController["state"],
-  | "questionRequest"
-  | "elicitationRequest"
-  | "websearch"
-  | "permissionRequest"
-  | "permissionResponding"
-  | "decide"
-  | "blocked"
+  "questionRequest" | "websearch" | "permissionRequest" | "permissionResponding" | "decide" | "blocked" | "goal"
 >
 
 export type SessionComposerRegionViewController = Pick<
   SessionComposerRegionController,
-  "centered" | "onResponseSubmit" | "setDockRef" | "child" | "showComposer"
+  "centered" | "onResponseSubmit" | "setDockRef" | "child" | "showComposer" | "goal"
 > & { state: SessionComposerRegionState }
 
 export function SessionComposerRegion(props: {
@@ -56,6 +51,7 @@ export function SessionComposerRegion(props: {
       >
         <div class="relative z-[70] flex flex-col">
           {props.above}
+          <SessionGoalDock model={controller.goal} />
           <ComposerMorph face={face()} instant={(face) => !!face.question && !questionMotion()}>
             {(current) => (
               <div class="flex flex-col">
