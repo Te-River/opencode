@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { eq, sql } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { Database } from "@opencode/core/database/database"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
@@ -259,6 +259,31 @@ const serviceIt = testEffect(
   ),
 )
 
+// Records the interrupts `pause` issues, so the gate on the process-local arming is observable.
+const interrupts: SessionSchema.ID[] = []
+const recordingExecution = Layer.succeed(
+  SessionExecution.Service,
+  SessionExecution.Service.of({
+    active: Effect.succeed(new Set()),
+    isActive: () => Effect.succeed(false),
+    resume: () => Effect.void,
+    wake: () => Effect.void,
+    interrupt: (sessionID) =>
+      Effect.sync(() => {
+        interrupts.push(sessionID)
+        return true
+      }),
+    awaitIdle: () => Effect.void,
+  }),
+)
+
+const interruptIt = testEffect(
+  AppNodeBuilder.build(
+    LayerNode.group([Database.node, Bus.node, SessionProjector.node, SessionGoal.node, SessionGoalActivation.node]),
+    [Bus.node.replace(Bus.configured({ persist: true })), SessionExecution.node.replace(recordingExecution)],
+  ),
+)
+
 describe("SessionGoal.Service", () => {
   serviceIt.effect("set arms the goal, pause disarms it, resume re-arms it, and clear disarms it", () =>
     Effect.gen(function* () {
@@ -313,6 +338,91 @@ describe("SessionGoal.Service", () => {
       expect((yield* conflict({ action: "edit", objective: "x", expectedRevision: 99 }))._tag).toBe(
         "SessionGoal.ConflictError",
       )
+    }),
+  )
+
+  serviceIt.effect("a CAS token from a previous goal is rejected even at the same revision", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const first = yield* goal.update(sessionID, { action: "set", objective: "first" })
+      const second = yield* goal.update(sessionID, { action: "set", objective: "second" })
+      // `set` starts the new goal at revision 1, so the revision alone cannot tell
+      // the two goals apart.
+      expect(second).toMatchObject({ revision: 1, objective: "second" })
+      expect(second.id).not.toBe(first.id)
+
+      const conflict = yield* goal
+        .update(sessionID, { action: "edit", objective: "x", expectedRevision: 1, expectedGoalID: first.id })
+        .pipe(Effect.flip)
+      expect(conflict._tag).toBe("SessionGoal.ConflictError")
+      expect(yield* goal.read(sessionID)).toMatchObject({ objective: "second" })
+
+      // The current goal's own token still passes.
+      expect(
+        yield* goal.update(sessionID, { action: "edit", objective: "x", expectedRevision: 1, expectedGoalID: second.id }),
+      ).toMatchObject({ revision: 2, objective: "x" })
+    }),
+  )
+
+  serviceIt.effect("phase guards reject pause on paused, resume on active, and edit/resume on a terminal goal", () =>
+    Effect.gen(function* () {
+      const { bus } = yield* setup
+      const goal = yield* SessionGoal.Service
+      const conflict = (input: SessionGoal.UpdateInput) => goal.update(sessionID, input).pipe(Effect.flip)
+
+      const active = yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      expect((yield* conflict({ action: "resume" }))._tag).toBe("SessionGoal.ConflictError")
+
+      yield* goal.update(sessionID, { action: "pause" })
+      expect((yield* conflict({ action: "pause" }))._tag).toBe("SessionGoal.ConflictError")
+
+      const resumed = yield* goal.update(sessionID, { action: "resume" })
+      expect(resumed).toMatchObject({ phase: "active" })
+
+      // A terminal phase is written by the driver; the service must still refuse to move it.
+      yield* bus.publish(SessionEvent.Goal.Updated, {
+        sessionID,
+        snapshot: { ...active, revision: resumed.revision + 1, phase: "complete" },
+      })
+      expect((yield* conflict({ action: "edit", objective: "x" }))._tag).toBe("SessionGoal.ConflictError")
+      expect((yield* conflict({ action: "resume" }))._tag).toBe("SessionGoal.ConflictError")
+    }),
+  )
+
+  serviceIt.effect("replaceTodo rejects a stale CAS token", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const first = yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      yield* goal.replaceTodo(sessionID, todos, { revision: 1, goalID: first.id })
+      expect(yield* goal.readTodo(sessionID)).toHaveLength(2)
+
+      const conflict = yield* goal
+        .replaceTodo(sessionID, [], { revision: 1, goalID: first.id })
+        .pipe(Effect.flip)
+      expect(conflict._tag).toBe("SessionGoal.ConflictError")
+      expect(yield* goal.readTodo(sessionID)).toHaveLength(2)
+    }),
+  )
+
+  interruptIt.effect("pause interrupts only a goal this process armed", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const activation = yield* SessionGoalActivation.Service
+
+      interrupts.length = 0
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      yield* goal.update(sessionID, { action: "pause" })
+      expect(interrupts).toEqual([sessionID])
+
+      // Active but not armed in this process (a restart leaves it disarmed): nothing to cancel.
+      yield* goal.update(sessionID, { action: "resume" })
+      yield* activation.disarm(sessionID)
+      interrupts.length = 0
+      yield* goal.update(sessionID, { action: "pause" })
+      expect(interrupts).toEqual([])
     }),
   )
 })

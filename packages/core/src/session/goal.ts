@@ -5,6 +5,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Bus } from "../bus.js"
 import { Database } from "../database/database.js"
+import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"
 import { SessionEvent } from "./event.js"
 import { SessionExecution } from "./execution.js"
@@ -203,7 +204,21 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()("SessionG
 export interface UpdateInput {
   readonly action: "set" | "clear" | "edit" | "pause" | "resume"
   readonly objective?: string
+  /** CAS: the revision the client last read. Supply `expectedGoalID` with it. */
   readonly expectedRevision?: number
+  /** CAS: the goal identity the client last read. A missing id never matches. */
+  readonly expectedGoalID?: SessionGoalSchema.ID
+}
+
+/**
+ * The compare-and-set token. A revision alone is not enough: `set` starts a new
+ * goal at revision 1, so a client holding revision 1 of the previous goal would
+ * otherwise pass against a different goal. The pair is compared together.
+ */
+export interface Expected {
+  readonly revision: number
+  /** A missing id never matches an existing goal, so a client that omits it fails closed. */
+  readonly goalID: SessionGoalSchema.ID | undefined
 }
 
 export interface Interface {
@@ -217,6 +232,7 @@ export interface Interface {
   readonly replaceTodo: (
     sessionID: SessionSchema.ID,
     todos: ReadonlyArray<SessionGoalSchema.TodoInput>,
+    expected?: Expected,
   ) => Effect.Effect<void, ConflictError>
 }
 
@@ -247,11 +263,20 @@ const layer = Layer.effect(
       }
     })
 
+    // The CAS reads the goal and publishes its successor in two steps. The
+    // per-session lock keeps a concurrent mutation from slipping between them, so
+    // two updates carrying the same token cannot both pass.
+    const locks = KeyedMutex.makeUnsafe<SessionSchema.ID>()
+
     const update = Effect.fn("SessionGoal.update")(function* (sessionID: SessionSchema.ID, input: UpdateInput) {
       const current = yield* read(db, sessionID)
-      if (input.expectedRevision !== undefined && current?.revision !== input.expectedRevision)
+      const expected =
+        input.expectedRevision === undefined
+          ? undefined
+          : { revision: input.expectedRevision, goalID: input.expectedGoalID }
+      if (expected && stale(current, expected))
         return yield* new ConflictError({
-          message: `Goal revision changed: expected ${input.expectedRevision}, found ${current?.revision ?? "none"}`,
+          message: `Goal changed: expected ${expected.goalID ?? "none"}@${expected.revision}, found ${current?.id ?? "none"}@${current?.revision ?? "none"}`,
         })
       if (input.action === "set") {
         const snapshot: SessionGoalSchema.Snapshot = {
@@ -267,20 +292,26 @@ const layer = Layer.effect(
       }
       const goal = yield* requireGoal(current)
       if (input.action === "edit") {
+        yield* requirePhase(goal, input.action, ["active", "paused"])
         const snapshot = { ...goal, revision: goal.revision + 1, objective: yield* requireObjective(input) }
         yield* publishUpdated(bus, sessionID, snapshot)
         return snapshot
       }
       if (input.action === "pause") {
+        yield* requirePhase(goal, input.action, ["active"])
         // Disarm first: it is the only action that stops the goal immediately, and
-        // it commits separately from the durable phase. Then cancel the running turn.
+        // it commits separately from the durable phase. Then cancel the running turn,
+        // but only a goal this process was actually driving: the phase guard already
+        // guarantees `active`, so `armed` is the remaining signal.
+        const armed = yield* activation.isArmed(sessionID)
         yield* activation.disarm(sessionID)
         const snapshot = { ...goal, revision: goal.revision + 1, phase: "paused" as const }
         yield* publishUpdated(bus, sessionID, snapshot)
-        yield* Effect.uninterruptible(execution.interrupt(sessionID, { reason: "user" }))
+        if (armed) yield* Effect.uninterruptible(execution.interrupt(sessionID))
         return snapshot
       }
       if (input.action === "resume") {
+        yield* requirePhase(goal, input.action, ["paused"])
         const snapshot = { ...goal, revision: goal.revision + 1, phase: "active" as const }
         yield* publishUpdated(bus, sessionID, snapshot)
         yield* activation.arm(sessionID)
@@ -298,8 +329,13 @@ const layer = Layer.effect(
     const replaceTodo = Effect.fn("SessionGoal.replaceTodo")(function* (
       sessionID: SessionSchema.ID,
       todos: ReadonlyArray<SessionGoalSchema.TodoInput>,
+      expected?: Expected,
     ) {
       const goal = yield* requireGoal(yield* read(db, sessionID))
+      if (expected && stale(goal, expected))
+        return yield* new ConflictError({
+          message: `Goal changed: expected ${expected.goalID ?? "none"}@${expected.revision}, found ${goal.id}@${goal.revision}`,
+        })
       yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: goal.revision + 1, todos })
     })
 
@@ -307,8 +343,8 @@ const layer = Layer.effect(
       read: (sessionID) => read(db, sessionID),
       readTodo: (sessionID) => readTodo(db, sessionID),
       readState,
-      update,
-      replaceTodo,
+      update: (sessionID, input) => locks.withLock(sessionID)(update(sessionID, input)),
+      replaceTodo: (sessionID, todos, expected) => locks.withLock(sessionID)(replaceTodo(sessionID, todos, expected)),
     })
   }),
 )
@@ -321,6 +357,22 @@ export const node = makeGlobalNode({
 
 function requireGoal(goal: SessionGoalSchema.Snapshot | undefined) {
   return goal ? Effect.succeed(goal) : Effect.fail(new ConflictError({ message: "No goal is set for this session" }))
+}
+
+/** True when the client's CAS token no longer matches the durable goal. */
+function stale(goal: SessionGoalSchema.Snapshot | undefined, expected: Expected) {
+  return goal?.revision !== expected.revision || goal?.id !== expected.goalID
+}
+
+/** Rejects an action the goal's durable phase does not allow. */
+function requirePhase(
+  goal: SessionGoalSchema.Snapshot,
+  action: UpdateInput["action"],
+  allowed: ReadonlyArray<SessionGoalSchema.Phase>,
+) {
+  return allowed.includes(goal.phase)
+    ? Effect.void
+    : Effect.fail(new ConflictError({ message: `Goal action "${action}" is not allowed in phase "${goal.phase}"` }))
 }
 
 function requireObjective(input: UpdateInput) {

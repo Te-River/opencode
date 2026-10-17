@@ -631,8 +631,12 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         Effect.fn(function* (ctx) {
           yield* session.get(ctx.params.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           const goal = yield* SessionGoal.Service
+          const expected =
+            ctx.payload.expectedRevision === undefined
+              ? undefined
+              : { revision: ctx.payload.expectedRevision, goalID: ctx.payload.expectedGoalID }
           yield* goal
-            .replaceTodo(ctx.params.sessionID, ctx.payload.todos)
+            .replaceTodo(ctx.params.sessionID, ctx.payload.todos, expected)
             .pipe(
               Effect.catchTag("SessionGoal.ConflictError", (error) => new ConflictError({ message: error.message })),
             )

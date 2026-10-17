@@ -1316,6 +1316,7 @@ export type SessionGoalUpdateInput = {
   readonly action: "set" | "clear" | "edit" | "pause" | "resume"
   readonly objective?: string | undefined
   readonly expectedRevision?: number | undefined
+  readonly expectedGoalID?: SessionGoal.ID | undefined
 }
 export type SessionGoalUpdateOutput = SessionGoal.Snapshot
 export type SessionGoalUpdateOperation<E = never> = (
@@ -1325,6 +1326,8 @@ export type SessionGoalUpdateOperation<E = never> = (
 export type SessionTodoReplaceInput = {
   readonly sessionID: Session.ID
   readonly todos: ReadonlyArray<SessionGoal.TodoInput>
+  readonly expectedRevision?: number | undefined
+  readonly expectedGoalID?: SessionGoal.ID | undefined
 }
 export type SessionTodoReplaceOutput = void
 export type SessionTodoReplaceOperation<E = never> = (

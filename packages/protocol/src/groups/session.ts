@@ -742,6 +742,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
           action: Schema.Literals(["set", "clear", "edit", "pause", "resume"]),
           objective: Schema.String.pipe(Schema.optional),
           expectedRevision: Schema.Number.pipe(Schema.optional),
+          expectedGoalID: SessionGoal.ID.pipe(Schema.optional),
         }),
         success: Schema.Struct({ data: SessionGoal.Snapshot }),
         error: [SessionNotFoundError, ConflictError],
@@ -752,14 +753,18 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
             identifier: "session.goal.update",
             summary: "Update session goal",
             description:
-              "Set, clear, edit, pause, or resume the session goal. `pause` is the user's cancel: it disarms the goal in this OpenCode process and interrupts the running turn. `expectedRevision` is an optional compare-and-set; omit it for last-write-wins.",
+              "Set, clear, edit, pause, or resume the session goal. `pause` is the user's cancel: it disarms the goal in this OpenCode process and interrupts the running turn. `expectedRevision` and `expectedGoalID` are an optional compare-and-set pair; supply both or neither, and omit them for last-write-wins.",
           }),
         ),
     )
     .add(
       HttpApiEndpoint.put("session.todo.replace", "/api/session/:sessionID/todo", {
         params: { sessionID: Session.ID },
-        payload: Schema.Struct({ todos: Schema.Array(SessionGoal.TodoInput) }),
+        payload: Schema.Struct({
+          todos: Schema.Array(SessionGoal.TodoInput),
+          expectedRevision: Schema.Number.pipe(Schema.optional),
+          expectedGoalID: SessionGoal.ID.pipe(Schema.optional),
+        }),
         success: HttpApiSchema.NoContent,
         error: [SessionNotFoundError, ConflictError],
       })
@@ -768,7 +773,8 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
           OpenApi.annotations({
             identifier: "session.todo.replace",
             summary: "Replace session todo list",
-            description: "Replace the whole todo list for the session's current goal.",
+            description:
+              "Replace the whole todo list for the session's current goal. `expectedRevision` and `expectedGoalID` are an optional compare-and-set pair; supply both or neither, and omit them for last-write-wins.",
           }),
         ),
     )
