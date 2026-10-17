@@ -9,6 +9,7 @@ import { projectSettingsKey, useSettings } from "@/settings/model"
 import { useWorkspaceLocation } from "@/workspaces/location"
 import { sessionPermissionRequest, sessionFormRequest, sessionTreeIDs } from "@/session/requests/session-request-tree"
 import { createWebSearchRequest } from "./websearch"
+import { createSessionGoalModel } from "@/session/goal/model"
 import { createSessionBackground } from "@/session/requests/background"
 import { useData } from "@/runtime/server/current"
 
@@ -40,20 +41,6 @@ export function createSessionRequestModel() {
     return sessionFormRequest(data.session.list(), data.session.form.list, params.id)
   })
 
-  // MCP elicitations are owned by the Location rather than a Session, so they are listed per Location.
-  const location = createMemo(() => {
-    const id = params.id
-
-    return id ? data.session.get(id)?.location : undefined
-  })
-
-  createEffect(() => {
-    const ref = location()
-
-    if (!ref || serverSDK.connection.status() !== "connected") return
-    void data.session.form.sync("global", ref).catch(() => undefined)
-  })
-
   const websearch = createWebSearchRequest({
     owner: () => params.id,
     connected: () => serverSDK.connection.status() === "connected",
@@ -82,17 +69,11 @@ export function createSessionRequestModel() {
     return form?.metadata?.kind === "question" ? form : undefined
   })
 
-  const elicitationRequest = createMemo(() => {
-    if (websearch.request() || questionRequest()) return
-    const form = formRequest()
-
-    if (form?.metadata?.kind === "mcp-elicitation") return form
-
-    const ref = location()
-
-    if (!ref) return
-
-    return data.session.form.list("global", ref)?.find((item) => item.metadata?.kind === "mcp-elicitation")
+  const goal = createSessionGoalModel({
+    sessionID: () => params.id,
+    connected: () => serverSDK.connection.status() === "connected",
+    data,
+    api: serverSDK.api,
   })
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
@@ -110,7 +91,7 @@ export function createSessionRequestModel() {
 
     if (!id) return false
 
-    return !!permissionRequest() || !!questionRequest() || !!elicitationRequest() || !!websearch.request()
+    return !!permissionRequest() || !!questionRequest() || !!websearch.request()
   })
 
   const primary = () => {
@@ -187,8 +168,8 @@ export function createSessionRequestModel() {
   return {
     blocked,
     questionRequest,
-    elicitationRequest,
     websearch,
+    goal,
     permissionRequest,
     permissionResponding,
     background: {
