@@ -2,82 +2,93 @@ export * as TodoTool from "./todo.js"
 
 import { ToolFailure } from "@opencode/ai/effect"
 import type { Context } from "@opencode/plugin/effect/plugin"
+import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"
 import { Effect, Schema } from "effect"
-import { Config } from "../../config.js"
-import { ConfigEntryObserver } from "../../config/plugin/entry-observer.js"
-import { Permission } from "../../permission.js"
-import DESCRIPTION from "../todowrite.txt"
+import { SessionGoal } from "../../session/goal.js"
 
-export const name = "todowrite"
+export const name = "todo"
 
-export const Info = Schema.Struct({
-  content: Schema.String.annotate({ description: "Brief description of the task" }),
-  status: Schema.Literals(["pending", "in_progress", "completed", "cancelled"]).annotate({
-    description: "Current status of the task: pending, in_progress, completed, cancelled",
-  }),
-})
-export type Info = typeof Info.Type
+const Acceptance = Schema.String.check(Schema.isMaxLength(200))
 
+/**
+ * The model's todo surface. `completed` is absent: the verifier owns it, so
+ * the model cannot tick its own list. `acceptance` is how the verifier knows
+ * what "done" means for an item.
+ */
 export const Input = Schema.Struct({
-  todos: Schema.Array(Info).annotate({ description: "The updated todo list" }),
+  todos: Schema.Array(
+    Schema.Struct({
+      content: Schema.String,
+      status: Schema.Literals(["pending", "in_progress", "cancelled"]),
+      acceptance: Schema.optionalKey(Acceptance),
+    }),
+  ),
 })
 
 export const Output = Schema.Struct({
-  todos: Schema.Array(Info),
+  todos: Schema.Array(SessionGoalSchema.TodoItem),
+  unmet: Schema.Array(
+    Schema.Struct({
+      position: Schema.Number,
+      reason: Schema.String,
+    }),
+  ),
 })
-export type Output = typeof Output.Type
 
-export const summarize = (todos: ReadonlyArray<Info>) => {
-  if (todos.length === 0) return "Todos cleared"
-  const count = (status: Info["status"]) => todos.filter((todo) => todo.status === status).length
-  const counts = [
-    `${count("completed")}/${todos.length} completed`,
-    ...(["in_progress", "pending", "cancelled"] as const).flatMap((status) =>
-      count(status) ? [`${count(status)} ${status.replace("_", " ")}`] : [],
-    ),
-  ].join(", ")
-  const active = todos.filter((todo) => todo.status === "in_progress").map((todo) => JSON.stringify(todo.content))
-  return `Todos updated: ${counts}${active.length ? `. In progress: ${active.join(", ")}` : ""}`
-}
+export const description = [
+  "Replace the session's whole todo list for the current goal.",
+  "",
+  "`acceptance` states how the item is judged done; the verifier reads it and nothing else about the item.",
+  "The verifier alone marks an item `completed`, so use `pending`, `in_progress` and `cancelled` here.",
+  "The result echoes the verifier's unmet items verbatim: fix those before anything else.",
+].join("\n")
 
 export const Plugin = {
   id: "opencode.tool.todo",
   effect: Effect.fn("TodoTool.Plugin")(function* (ctx: Context) {
-    const config = yield* Config.Service
-    const permission = yield* Permission.Service
-    // Internal plugins are not re-run on config changes, so reload the tool transform instead.
-    const loaded = yield* ConfigEntryObserver.observe(config, ctx.event, ctx.tool.reload())
-    const enabled = () => Config.latest(loaded.entries, "experimental")?.todo === true
-
+    const goal = yield* SessionGoal.Service
     yield* ctx.tool
-      .transform((editor) => {
-        if (!enabled()) return
+      .transform((editor) =>
         editor.add({
           name,
           options: { codemode: false },
-          description: DESCRIPTION,
+          description,
           input: Input,
           output: Output,
           execute: (input, context) =>
-            permission
-              .assert({
-                action: name,
-                resources: ["*"],
-                save: ["*"],
-                sessionID: context.sessionID,
-                agent: context.agent,
-                source: { type: "tool", messageID: context.messageID, id: context.id },
-              })
-              .pipe(
-                Effect.mapError((error) => new ToolFailure({ message: "Unable to update todos", error })),
-                Effect.as({
-                  output: { todos: input.todos },
-                  content: summarize(input.todos),
-                  metadata: { todos: input.todos },
-                }),
-              ),
-        })
-      })
+            Effect.gen(function* () {
+              // The verifier's reasons live on the rows this call replaces, so read
+              // them first: the echo below is where the model sees them.
+              const before = yield* goal.readTodo(context.sessionID)
+              const unmet = before.flatMap((item) =>
+                item.feedback === undefined || item.feedback === ""
+                  ? []
+                  : [{ position: item.position, reason: item.feedback }],
+              )
+              yield* goal.replaceTodo(context.sessionID, input.todos)
+              const after = yield* goal.readTodo(context.sessionID)
+              return { output: { todos: after, unmet }, content: render(after, unmet) }
+            }).pipe(Effect.mapError((error) => new ToolFailure({ message: error.message }))),
+        }),
+      )
       .pipe(Effect.orDie)
   }),
 }
+
+const render = (
+  todos: ReadonlyArray<SessionGoalSchema.TodoItem>,
+  unmet: ReadonlyArray<{ readonly position: number; readonly reason: string }>,
+) =>
+  [
+    todos.length === 0
+      ? "Todo list: (empty)"
+      : `Todo list:\n${todos
+          .map(
+            (item) =>
+              `- [${item.position}] ${item.status}: ${item.content}${item.acceptance === undefined ? "" : `\n  acceptance: ${item.acceptance}`}`,
+          )
+          .join("\n")}`,
+    unmet.length === 0
+      ? "The verifier has not rejected anything."
+      : `The verifier did not accept these items:\n${unmet.map((item) => `- [${item.position}] ${item.reason}`).join("\n")}`,
+  ].join("\n\n")
