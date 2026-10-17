@@ -48,6 +48,8 @@ const goalLayer = Layer.succeed(
         }
       }),
     replaceTodo: () => Effect.die("unused SessionGoal.replaceTodo"),
+    block: () => Effect.die("unused SessionGoal.block"),
+    complete: () => Effect.die("unused SessionGoal.complete"),
   }),
 )
 const it = testEffect(

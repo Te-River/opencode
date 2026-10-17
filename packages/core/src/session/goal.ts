@@ -208,6 +208,12 @@ export interface UpdateInput {
   readonly expectedRevision?: number
   /** CAS: the goal identity the client last read. A missing id never matches. */
   readonly expectedGoalID?: SessionGoalSchema.ID
+  /**
+   * Whether `pause` also cancels the running turn. The user's pause does; the
+   * model pauses from inside its own turn, where interrupting would kill the turn
+   * that is asking. Defaults to true.
+   */
+  readonly interrupt?: boolean
 }
 
 /**
@@ -234,6 +240,13 @@ export interface Interface {
     todos: ReadonlyArray<SessionGoalSchema.TodoInput>,
     expected?: Expected,
   ) => Effect.Effect<void, ConflictError>
+  /**
+   * Pushes an active goal to a terminal phase. The round driver owns `blocked`
+   * (rounds exhausted) and the verifier owns `complete`; both are no-ops once the
+   * goal left `active`, so a stale caller cannot reopen a settled goal.
+   */
+  readonly block: (sessionID: SessionSchema.ID, reason: SessionGoalSchema.Reason) => Effect.Effect<void>
+  readonly complete: (sessionID: SessionSchema.ID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionGoal") {}
@@ -307,7 +320,7 @@ const layer = Layer.effect(
         yield* activation.disarm(sessionID)
         const snapshot = { ...goal, revision: goal.revision + 1, phase: "paused" as const }
         yield* publishUpdated(bus, sessionID, snapshot)
-        if (armed) yield* Effect.uninterruptible(execution.interrupt(sessionID))
+        if (armed && input.interrupt !== false) yield* Effect.uninterruptible(execution.interrupt(sessionID, { reason: "user" }))
         return snapshot
       }
       if (input.action === "resume") {
@@ -339,12 +352,26 @@ const layer = Layer.effect(
       yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: goal.revision + 1, todos })
     })
 
+    // A terminal phase is a one-way door: only an `active` goal moves, so a late
+    // verdict or a second driver pass cannot reopen a settled goal.
+    const settle = Effect.fn("SessionGoal.settle")(function* (
+      sessionID: SessionSchema.ID,
+      phase: "blocked" | "complete",
+      blockedReason?: SessionGoalSchema.Reason,
+    ) {
+      const goal = yield* read(db, sessionID)
+      if (goal?.phase !== "active") return
+      yield* publishUpdated(bus, sessionID, { ...goal, revision: goal.revision + 1, phase, blockedReason })
+    })
+
     return Service.of({
       read: (sessionID) => read(db, sessionID),
       readTodo: (sessionID) => readTodo(db, sessionID),
       readState,
       update: (sessionID, input) => locks.withLock(sessionID)(update(sessionID, input)),
       replaceTodo: (sessionID, todos, expected) => locks.withLock(sessionID)(replaceTodo(sessionID, todos, expected)),
+      block: (sessionID, reason) => locks.withLock(sessionID)(settle(sessionID, "blocked", reason)),
+      complete: (sessionID) => locks.withLock(sessionID)(settle(sessionID, "complete")),
     })
   }),
 )

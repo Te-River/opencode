@@ -1533,7 +1533,7 @@ export type SessionUsageRecorded = {
   location?: LocationRef
   data: {
     sessionID: SessionID
-    source: "title" | "compaction"
+    source: "title" | "compaction" | "goal-verify"
     cost: MoneyUSD
     allowance?: MoneyUSD
     tokens: TokenUsageInfo
