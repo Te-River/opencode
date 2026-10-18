@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Layer, Stream } from "effect"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Bus } from "@opencode/core/bus"
@@ -17,11 +17,13 @@ import { SessionGoalActivation } from "@opencode/core/session/goal-activation"
 import { SessionGoalDriver } from "@opencode/core/session/goal-driver"
 import { SessionGoalVerify } from "@opencode/core/session/goal-verify"
 import { SessionInbox } from "@opencode/core/session/inbox"
+import { GoalPlugin } from "@opencode/core/plugin/goal"
 import { SessionMessage } from "@opencode/core/session/message"
 import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionSchema } from "@opencode/core/session/schema"
 import { SessionGoalTable, SessionTable } from "@opencode/core/session/sql"
 import { testEffect } from "./lib/effect"
+import { host } from "./plugin/host"
 
 const sessionID = SessionSchema.ID.make("ses_goal_driver_test")
 
@@ -31,12 +33,16 @@ const rounds: Array<Parameters<Session.Interface["synthetic"]>[0]> = []
 const pending: SessionInbox.Info[] = []
 const verified: SessionSchema.ID[] = []
 let completeGoal: (sessionID: SessionSchema.ID) => Effect.Effect<void> = () => Effect.void
+let verifyStarted: Deferred.Deferred<void> | undefined
+let verifyGate: Deferred.Deferred<void> | undefined
 
 const reset = () => {
   rounds.length = 0
   pending.length = 0
   verified.length = 0
   completeGoal = () => Effect.void
+  verifyStarted = undefined
+  verifyGate = undefined
 }
 
 const sessionLayer = Layer.succeed(
@@ -64,7 +70,13 @@ const sessionLayer = Layer.succeed(
 const verifyLayer = Layer.succeed(
   SessionGoalVerify.Service,
   SessionGoalVerify.Service.of({
-    verify: (id) => Effect.sync(() => verified.push(id)).pipe(Effect.andThen(completeGoal(id))),
+    verify: (id) =>
+      Effect.gen(function* () {
+        verified.push(id)
+        if (verifyStarted) yield* Deferred.succeed(verifyStarted, undefined)
+        if (verifyGate) yield* Deferred.await(verifyGate)
+        yield* completeGoal(id)
+      }),
   }),
 )
 
@@ -202,14 +214,91 @@ describe("SessionGoalDriver", () => {
     }),
   )
 
-  it.effect("a disarmed goal admits nothing", () =>
+  it.effect("a disarmed active goal is re-armed at the idle boundary", () =>
     Effect.gen(function* () {
       reset()
       const { activation } = yield* start
       yield* activation.disarm(sessionID)
       yield* SessionGoalDriver.onSucceeded(sessionID, context)
-      expect(verified).toHaveLength(0)
-      expect(rounds).toHaveLength(0)
+      expect(yield* activation.isArmed(sessionID)).toBe(true)
+      expect(verified).toEqual([sessionID])
+      expect(rounds).toHaveLength(1)
+    }),
+  )
+
+  it.effect("a human turn re-arms the goal at the next idle boundary", () =>
+    Effect.gen(function* () {
+      reset()
+      const { activation } = yield* start
+      yield* SessionGoalDriver.handle(
+        driverEvent("session.inbox.enqueued", { sessionID, item: { type: "user" } }),
+        context,
+      )
+      expect(yield* activation.isArmed(sessionID)).toBe(false)
+      yield* SessionGoalDriver.onSucceeded(sessionID, context)
+      expect(yield* activation.isArmed(sessionID)).toBe(true)
+      expect(verified).toEqual([sessionID])
+      expect(rounds).toHaveLength(1)
+    }),
+  )
+
+  it.effect("an empty todo list admits a round", () =>
+    Effect.gen(function* () {
+      reset()
+      const { goal } = yield* start
+      yield* goal.replaceTodo(sessionID, [])
+      yield* SessionGoalDriver.onSucceeded(sessionID, context)
+      expect(verified).toEqual([sessionID])
+      expect(rounds).toHaveLength(1)
+    }),
+  )
+
+  it.effect("a slow verification for one session does not block another session's disarm", () =>
+    Effect.gen(function* () {
+      reset()
+      const { activation } = yield* start
+      const other = SessionSchema.ID.make("ses_goal_driver_other")
+      yield* activation.arm(other)
+      verifyStarted = yield* Deferred.make<void>()
+      verifyGate = yield* Deferred.make<void>()
+      yield* SessionGoalDriver.run(
+        Stream.fromIterable([
+          driverEvent("session.execution.succeeded", { sessionID }),
+          driverEvent("session.inbox.enqueued", { sessionID: other, item: { type: "user" } }),
+        ]),
+        context,
+      ).pipe(Effect.forkScoped({ startImmediately: true }))
+      yield* Deferred.await(verifyStarted)
+      // The other session's disarm must not wait behind this verification.
+      yield* Effect.forEach(Array.from({ length: 50 }), () => Effect.yieldNow, { discard: true })
+      expect(yield* activation.isArmed(other)).toBe(false)
+      yield* Deferred.succeed(verifyGate, undefined)
+    }),
+  )
+
+  it.effect("the plugin keeps a slow verification from blocking another session's disarm", () =>
+    Effect.gen(function* () {
+      reset()
+      const { activation } = yield* start
+      const other = SessionSchema.ID.make("ses_goal_driver_other")
+      yield* activation.arm(other)
+      verifyStarted = yield* Deferred.make<void>()
+      verifyGate = yield* Deferred.make<void>()
+      yield* GoalPlugin.Plugin.effect(
+        host({
+          event: {
+            subscribe: () =>
+              Stream.fromIterable([
+                driverEvent("session.execution.succeeded", { sessionID }),
+                driverEvent("session.inbox.enqueued", { sessionID: other, item: { type: "user" } }),
+              ]),
+          },
+        }),
+      ).pipe(Effect.provideService(SessionContext.Service, context))
+      yield* Deferred.await(verifyStarted)
+      yield* Effect.forEach(Array.from({ length: 50 }), () => Effect.yieldNow, { discard: true })
+      expect(yield* activation.isArmed(other)).toBe(false)
+      yield* Deferred.succeed(verifyGate, undefined)
     }),
   )
 

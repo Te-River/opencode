@@ -310,6 +310,46 @@ describe("SessionGoal.Service", () => {
     }),
   )
 
+  serviceIt.effect("resume re-arms an active goal this process disarmed, and rejects an armed one", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const goal = yield* SessionGoal.Service
+      const activation = yield* SessionGoalActivation.Service
+      const active = yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      yield* activation.disarm(sessionID)
+
+      expect(yield* goal.update(sessionID, { action: "resume" })).toMatchObject({
+        id: active.id,
+        revision: active.revision,
+        phase: "active",
+      })
+      expect(yield* activation.isArmed(sessionID)).toBe(true)
+
+      // An armed active goal is already running; resume is not an idempotent no-op.
+      expect((yield* goal.update(sessionID, { action: "resume" }).pipe(Effect.flip))._tag).toBe(
+        "SessionGoal.ConflictError",
+      )
+    }),
+  )
+
+  serviceIt.effect("set starts a new goal with a fresh round budget", () =>
+    Effect.gen(function* () {
+      const { db, bus } = yield* setup
+      const goal = yield* SessionGoal.Service
+      const first = yield* goal.update(sessionID, { action: "set", objective: "first" })
+      yield* goal.replaceTodo(sessionID, [{ content: "first", status: "pending" }])
+      yield* bus.publish(SessionEvent.Todo.Verified, {
+        sessionID,
+        revision: first.revision + 1,
+        items: [{ position: 0, status: "pending", feedback: "not yet" }],
+      })
+      expect((yield* rounds(db))?.rounds).toBe(1)
+
+      yield* goal.update(sessionID, { action: "set", objective: "second" })
+      expect((yield* rounds(db))?.rounds).toBe(0)
+    }),
+  )
+
   serviceIt.effect("readState reports the goal, its todo list, and process-local arming", () =>
     Effect.gen(function* () {
       yield* setup

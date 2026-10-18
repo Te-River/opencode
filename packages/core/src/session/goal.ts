@@ -30,6 +30,14 @@ export const projectUpdated = Effect.fn("SessionGoal.projectUpdated")(function* 
     readonly snapshot: SessionGoalSchema.Snapshot
   },
 ) {
+  const current = yield* db
+    .select({ goal_id: SessionGoalTable.goal_id })
+    .from(SessionGoalTable)
+    .where(eq(SessionGoalTable.session_id, input.sessionID))
+    .get()
+    .pipe(Effect.orDie)
+  const isNewGoal = current !== undefined && current.goal_id !== input.snapshot.id
+  if (isNewGoal) yield* clearTodos(db, input.sessionID)
   const values = {
     session_id: input.sessionID,
     goal_id: input.snapshot.id,
@@ -38,14 +46,10 @@ export const projectUpdated = Effect.fn("SessionGoal.projectUpdated")(function* 
     phase: input.snapshot.phase,
     blocked_reason: input.snapshot.blockedReason ?? null,
     max_goal_rounds: input.snapshot.maxGoalRounds,
+    // A new goal identity starts a fresh round budget; edits and phase changes
+    // keep the current count.
+    ...(isNewGoal ? { rounds: 0 } : {}),
   }
-  const current = yield* db
-    .select({ goal_id: SessionGoalTable.goal_id })
-    .from(SessionGoalTable)
-    .where(eq(SessionGoalTable.session_id, input.sessionID))
-    .get()
-    .pipe(Effect.orDie)
-  if (current && current.goal_id !== input.snapshot.id) yield* clearTodos(db, input.sessionID)
   yield* db
     .insert(SessionGoalTable)
     .values(values)
@@ -324,6 +328,15 @@ const layer = Layer.effect(
         return snapshot
       }
       if (input.action === "resume") {
+        // An active goal that this process disarmed (a human turn, a failure, a
+        // compaction failure, or a restart) is re-armed in place: the durable
+        // phase already says it should run, so there is nothing to publish.
+        if (goal.phase === "active") {
+          if (yield* activation.isArmed(sessionID))
+            return yield* new ConflictError({ message: `Goal action "resume" is not allowed in phase "active"` })
+          yield* activation.arm(sessionID)
+          return goal
+        }
         yield* requirePhase(goal, input.action, ["paused"])
         const snapshot = { ...goal, revision: goal.revision + 1, phase: "active" as const }
         yield* publishUpdated(bus, sessionID, snapshot)

@@ -84,3 +84,19 @@ describe("SessionGoalVerify.applyVerdict", () => {
     expect(items.every(SessionGoalVerify.isSettled)).toBe(true)
   })
 })
+
+describe("SessionGoalVerify.isComplete", () => {
+  it("does not complete an empty list", () => {
+    expect(SessionGoalVerify.isComplete([], verdict({}))).toBe(false)
+  })
+
+  it("completes a non-empty settled list on a complete verdict", () => {
+    expect(SessionGoalVerify.isComplete([{ position: 0, status: "completed", feedback: "" }], verdict({}))).toBe(true)
+  })
+
+  it("does not complete on an incomplete verdict", () => {
+    expect(
+      SessionGoalVerify.isComplete([{ position: 0, status: "completed", feedback: "" }], verdict({ verdict: "incomplete" })),
+    ).toBe(false)
+  })
+})
