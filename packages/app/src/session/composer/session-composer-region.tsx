@@ -10,7 +10,7 @@ import { ComposerMorph, Grow } from "./spring-height"
 
 type SessionComposerRegionState = Pick<
   SessionComposerRegionController["state"],
-  "questionRequest" | "websearch" | "permissionRequest" | "permissionResponding" | "decide" | "blocked" | "goal"
+  "questionRequest" | "elicitationRequest" | "websearch" | "permissionRequest" | "permissionResponding" | "decide" | "blocked" | "goal"
 >
 
 export type SessionComposerRegionViewController = Pick<

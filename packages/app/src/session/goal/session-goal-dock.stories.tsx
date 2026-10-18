@@ -7,6 +7,19 @@ type Goal = NonNullable<SessionGoalState["goal"]>
 
 const OBJECTIVE = "Ship the goal indicator and todo dock"
 
+const TODOS: SessionGoalState["todo"] = [
+  { position: 0, content: "Wire the goal store", status: "completed" },
+  { position: 1, content: "Render the todo list", status: "in_progress" },
+  { position: 2, content: "Ship the PR", status: "pending" },
+  { position: 3, content: "Write the changelog", status: "cancelled" },
+]
+
+const MANY_TODOS: SessionGoalState["todo"] = Array.from({ length: 7 }, (_, index) => ({
+  position: index,
+  content: `Todo item ${index + 1}`,
+  status: index === 0 ? "in_progress" : "pending",
+}))
+
 function goal(phase: Goal["phase"], overrides: Partial<Goal> = {}): Goal {
   return { id: "goal_story", revision: 1, objective: OBJECTIVE, phase, maxGoalRounds: 8, ...overrides }
 }
@@ -92,4 +105,18 @@ export const Blocked = {
 
 export const Complete = {
   render: () => <GoalDockStory initial={state("complete")} />,
+}
+
+export const ActiveLongRunning = {
+  render: () => (
+    <GoalDockStory initial={state("active", {}, { createdAt: Date.now() - 95 * 60_000 - 3_000 })} />
+  ),
+}
+
+export const Todos = {
+  render: () => <GoalDockStory initial={state("active", {}, { todo: TODOS })} />,
+}
+
+export const TodosOverflow = {
+  render: () => <GoalDockStory initial={state("active", {}, { todo: MANY_TODOS })} />,
 }
