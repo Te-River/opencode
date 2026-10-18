@@ -11,8 +11,43 @@ story("offers pause while the goal is active", async ({ mount }) => {
   await expect(goal).toHaveAttribute("data-phase", "active")
   await expect(goal).toContainText("Ship the goal indicator and todo dock")
   await expect(goal.locator('[data-slot="session-goal-elapsed"]')).toHaveText(/^\d+m \d+s$/)
+  await expect(goal.locator('[data-slot="session-goal-todos"]')).toHaveCount(0)
   await expect(goal.getByRole("button", { name: "Pause goal" })).toBeVisible()
   await expect(goal.getByRole("button")).toHaveCount(1)
+})
+
+story("freezes the elapsed time while paused", async ({ mount, page }) => {
+  const component = await mount("app-session-goal-dock--paused")
+  const elapsed = component.locator('[data-slot="session-goal-elapsed"]')
+  await expect(elapsed).toHaveText(/^\d+m \d+s$/)
+  const frozen = await elapsed.textContent()
+  await page.waitForTimeout(1500)
+  await expect(elapsed).toHaveText(frozen ?? "")
+})
+
+story("formats an hour or more as hours and minutes", async ({ mount }) => {
+  const component = await mount("app-session-goal-dock--active-long-running")
+  await expect(component.locator('[data-slot="session-goal-elapsed"]')).toHaveText("1h 35m")
+})
+
+story("renders the goal todo list", async ({ mount }) => {
+  const component = await mount("app-session-goal-dock--todos")
+  const goal = component.locator('[data-component="session-goal-dock"]')
+  const todos = goal.locator('[data-slot="session-goal-todo"]')
+  await expect(todos).toHaveCount(4)
+  await expect(todos.nth(0)).toHaveAttribute("data-status", "completed")
+  await expect(todos.nth(1)).toHaveAttribute("data-status", "in_progress")
+  await expect(goal.getByRole("listitem", { name: "Completed: Wire the goal store" })).toBeVisible()
+  await expect(goal.getByRole("listitem", { name: "In progress: Render the todo list" })).toBeVisible()
+  await expect(goal.getByRole("listitem", { name: "Pending: Ship the PR" })).toBeVisible()
+  await expect(goal.getByRole("listitem", { name: "Cancelled: Write the changelog" })).toBeVisible()
+})
+
+story("caps the todo list at five rows", async ({ mount }) => {
+  const component = await mount("app-session-goal-dock--todos-overflow")
+  const goal = component.locator('[data-component="session-goal-dock"]')
+  await expect(goal.locator('[data-slot="session-goal-todo"]')).toHaveCount(5)
+  await expect(goal.locator('[data-slot="session-goal-todo-more"]')).toHaveText("+2 more")
 })
 
 story("marks an active goal this process will not run", async ({ mount }) => {

@@ -2,7 +2,7 @@ import { Button } from "@opencode/ui/button"
 import { DockShell } from "@opencode/ui/dock-surface"
 import { Icon } from "@opencode/ui/icon"
 import type { SessionGoalState } from "@opencode/client/promise"
-import { createEffect, createMemo, on, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { SessionGoalModel } from "./model"
@@ -10,6 +10,7 @@ import "./session-goal-dock.css"
 
 type GoalSnapshot = NonNullable<SessionGoalState["goal"]>
 type GoalPhase = GoalSnapshot["phase"]
+type GoalTodo = SessionGoalState["todo"][number]
 
 const PHASE_ICON: Record<GoalPhase, string> = {
   active: "checklist",
@@ -17,6 +18,22 @@ const PHASE_ICON: Record<GoalPhase, string> = {
   blocked: "warning",
   complete: "check",
 }
+
+const TODO_ICON: Record<GoalTodo["status"], string> = {
+  pending: "circle",
+  in_progress: "circle-dot",
+  completed: "circle-check",
+  cancelled: "circle-x",
+}
+
+const TODO_LABEL = {
+  pending: "session.goal.todo.pending",
+  in_progress: "session.goal.todo.inProgress",
+  completed: "session.goal.todo.completed",
+  cancelled: "session.goal.todo.cancelled",
+} as const
+
+const TODO_LIMIT = 5
 
 export function SessionGoalDock(props: { model: SessionGoalModel }) {
   const language = useLanguage()
@@ -57,6 +74,7 @@ export function SessionGoalDock(props: { model: SessionGoalModel }) {
                 createdAt={createdAt()}
                 blockedReason={goal.blockedReason?.message}
                 stopped={goal.phase === "active" && props.model.state()?.armed === false}
+                todo={props.model.state()?.todo ?? []}
               />
             }
           >
@@ -99,26 +117,53 @@ function SessionGoalProgress(props: {
   createdAt?: number
   blockedReason?: string
   stopped: boolean
+  todo: SessionGoalState["todo"]
 }) {
   const language = useLanguage()
-  const [clock, setClock] = createStore({ elapsedTick: Date.now() })
+  const [clock, setClock] = createStore({ elapsed: 0 })
+  let timer: ReturnType<typeof setInterval> | undefined
 
-  // The timer lives with the rendered goal, so no goal means no interval.
-  onMount(() => {
-    const timer = setInterval(() => setClock("elapsedTick", Date.now()), 1000)
-    onCleanup(() => clearInterval(timer))
-  })
+  const stop = () => {
+    if (timer === undefined) return
+    clearInterval(timer)
+    timer = undefined
+  }
+
+  const tick = () => {
+    if (props.createdAt === undefined) return
+    setClock("elapsed", Math.max(0, Math.round((Date.now() - props.createdAt) / 1000)))
+  }
+
+  // Elapsed time only advances while the goal is active. Leaving the phase
+  // freezes the last value instead of hiding it, so paused and complete goals
+  // still show how long they ran.
+  createEffect(
+    on(
+      () => props.phase,
+      (phase) => {
+        stop()
+        tick()
+        if (phase === "active") timer = setInterval(tick, 1000)
+      },
+    ),
+  )
+  onCleanup(stop)
 
   const elapsed = createMemo(() => {
     if (props.createdAt === undefined) return ""
     const format = new Intl.NumberFormat(language.intl())
-    const total = Math.max(0, Math.round((clock.elapsedTick - props.createdAt) / 1000))
+    const total = clock.elapsed
 
     if (total < 60) return language.t("ui.message.duration.seconds", { count: format.format(total) })
+    if (total < 3600)
+      return language.t("ui.message.duration.minutesSeconds", {
+        minutes: format.format(Math.floor(total / 60)),
+        seconds: format.format(total % 60),
+      })
 
-    return language.t("ui.message.duration.minutesSeconds", {
-      minutes: format.format(Math.floor(total / 60)),
-      seconds: format.format(total % 60),
+    return language.t("ui.message.duration.hoursMinutes", {
+      hours: format.format(Math.floor(total / 3600)),
+      minutes: format.format(Math.floor((total % 3600) / 60)),
     })
   })
 
@@ -130,19 +175,40 @@ function SessionGoalProgress(props: {
 
   return (
     <div data-slot="session-goal-progress">
-      <span data-slot="session-goal-objective" title={props.objective}>
-        {props.objective}
-      </span>
-      <Show
-        when={props.blockedReason}
-        fallback={
-          <span data-slot="session-goal-meta">
-            <Show when={elapsed()}>{(value) => <span data-slot="session-goal-elapsed">{value()}</span>}</Show>
-            <Show when={status()}>{(value) => <span data-slot="session-goal-status">{value()}</span>}</Show>
-          </span>
-        }
-      >
-        {(reason) => <span data-slot="session-goal-blocked">{reason()}</span>}
+      <div data-slot="session-goal-summary">
+        <span data-slot="session-goal-objective" title={props.objective}>
+          {props.objective}
+        </span>
+        <Show
+          when={props.blockedReason}
+          fallback={
+            <span data-slot="session-goal-meta">
+              <Show when={elapsed()}>{(value) => <span data-slot="session-goal-elapsed">{value()}</span>}</Show>
+              <Show when={status()}>{(value) => <span data-slot="session-goal-status">{value()}</span>}</Show>
+            </span>
+          }
+        >
+          {(reason) => <span data-slot="session-goal-blocked">{reason()}</span>}
+        </Show>
+      </div>
+      <Show when={props.todo.length > 0}>
+        <ul data-slot="session-goal-todos" aria-label={language.t("session.goal.todos")}>
+          {props.todo.slice(0, TODO_LIMIT).map((item) => (
+            <li
+              data-slot="session-goal-todo"
+              data-status={item.status}
+              aria-label={language.t(TODO_LABEL[item.status], { content: item.content })}
+            >
+              <Icon name={TODO_ICON[item.status]} size="small" />
+              <span data-slot="session-goal-todo-content">{item.content}</span>
+            </li>
+          ))}
+          <Show when={props.todo.length > TODO_LIMIT}>
+            <li data-slot="session-goal-todo-more">
+              {language.plural("session.goal.todo.more", props.todo.length - TODO_LIMIT)}
+            </li>
+          </Show>
+        </ul>
       </Show>
     </div>
   )

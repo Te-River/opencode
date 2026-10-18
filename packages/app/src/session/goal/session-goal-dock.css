@@ -30,11 +30,18 @@
   display: flex;
   flex: 1;
   min-width: 0;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   color: var(--v2-text-text-base);
   font-size: 13px;
   line-height: var(--line-height-compact);
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-summary"] {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
 }
 
 [data-component="session-goal-dock"] [data-slot="session-goal-objective"] {
@@ -71,6 +78,49 @@
   line-height: var(--line-height-compact);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todos"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  line-height: var(--line-height-compact);
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo"] {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo"] [data-slot="icon-svg"] {
+  flex-shrink: 0;
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo-content"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo"][data-status="in_progress"] [data-slot="icon-svg"] {
+  color: var(--v2-icon-icon-accent);
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo"][data-status="completed"] [data-slot="icon-svg"] {
+  color: var(--v2-state-fg-success);
+}
+
+[data-component="session-goal-dock"] [data-slot="session-goal-todo"][data-status="cancelled"] [data-slot="icon-svg"] {
+  color: var(--v2-state-fg-danger);
 }
 
 [data-component="session-goal-dock"] [data-slot="session-goal-actions"] {

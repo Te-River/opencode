@@ -588,6 +588,13 @@ export const dict = {
   "session.goal.paused": "Paused",
   "session.goal.complete": "Complete",
   "session.goal.stopped": "Stopped",
+  "session.goal.todos": "Goal todos",
+  "session.goal.todo.pending": "Pending: {{content}}",
+  "session.goal.todo.inProgress": "In progress: {{content}}",
+  "session.goal.todo.completed": "Completed: {{content}}",
+  "session.goal.todo.cancelled": "Cancelled: {{content}}",
+  "session.goal.todo.more.one": "+{{count}} more",
+  "session.goal.todo.more.other": "+{{count}} more",
   "session.question.minimize": "Minimize question",
   "session.question.restore": "Restore question",
 
