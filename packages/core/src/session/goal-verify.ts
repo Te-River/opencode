@@ -167,7 +167,7 @@ const layer = Layer.effect(
       // The model's verdict is necessary, never sufficient: the code gate below is
       // the authority on completion, so a verdict cannot tick an item the list
       // still shows as open.
-      if (verdict?.verdict === "complete" && items.every(isSettled)) yield* goal.complete(sessionID)
+      if (isComplete(items, verdict)) yield* goal.complete(sessionID)
     })
 
     const evidence = Effect.fn("SessionGoalVerify.evidence")(function* (input: {
@@ -233,6 +233,16 @@ export const applyVerdict = (
 /** True when a verdict leaves the item in a terminal state. */
 export const isSettled = (item: SessionGoalSchema.TodoVerification) =>
   item.status === "completed" || item.status === "cancelled"
+
+/**
+ * The code gate on completion. A complete verdict only finishes a non-empty
+ * list whose every item is settled: an empty list means the model has not
+ * written the work down yet, so it is never done.
+ */
+export const isComplete = (
+  items: ReadonlyArray<SessionGoalSchema.TodoVerification>,
+  verdict: Verdict | undefined,
+) => verdict?.verdict === "complete" && items.length > 0 && items.every(isSettled)
 
 const toolEvidence = (part: SessionMessage.AssistantContent): ReadonlyArray<ToolEvidence> => {
   if (part.type !== "tool") return []

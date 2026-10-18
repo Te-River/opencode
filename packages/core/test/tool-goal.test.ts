@@ -81,31 +81,36 @@ const textOf = (content: ReadonlyArray<Tool.Content> | undefined) =>
   (content ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
 
 describe("GoalTool", () => {
-  it("has no resume action", () => {
-    expect(Option.isNone(Schema.decodeUnknownOption(GoalTool.Input)({ action: "resume" }))).toBe(true)
-    expect(Option.isSome(Schema.decodeUnknownOption(GoalTool.Input)({ action: "pause" }))).toBe(true)
+  it("only exposes edit and pause", () => {
+    for (const action of ["set", "clear", "resume"]) {
+      expect(Option.isNone(Schema.decodeUnknownOption(GoalTool.Input)({ action }))).toBe(true)
+    }
+    for (const action of ["edit", "pause"]) {
+      expect(Option.isSome(Schema.decodeUnknownOption(GoalTool.Input)({ action }))).toBe(true)
+    }
   })
 
-  toolIt.effect("sets a goal and reports the state back", () =>
+  toolIt.effect("edits the goal and reports the state back", () =>
     Effect.gen(function* () {
       const { goal, tools } = yield* setup
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
       const result = yield* executeTool(tools, {
         sessionID,
         ...toolIdentity,
         call: {
           type: "tool-call",
-          id: "call-goal-set",
+          id: "call-goal-edit",
           name: "goal",
-          input: { action: "set", objective: "ship it" },
+          input: { action: "edit", objective: "ship it well" },
         },
       })
       expect(result.status).toBe("completed")
       expect(result.output).toMatchObject({
-        goal: { objective: "ship it", phase: "active" },
+        goal: { objective: "ship it well", phase: "active" },
         rounds: 0,
         maxGoalRounds: 8,
       })
-      expect(yield* goal.read(sessionID)).toMatchObject({ objective: "ship it", phase: "active" })
+      expect(yield* goal.read(sessionID)).toMatchObject({ objective: "ship it well", phase: "active" })
     }),
   )
 

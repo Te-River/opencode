@@ -9,11 +9,12 @@ import { SessionGoal } from "../../session/goal.js"
 export const name = "goal"
 
 /**
- * The model's goal surface. `resume` is deliberately absent: only the user
- * resumes a paused goal, so the model cannot construct the request at all.
+ * The model's goal surface. `set`, `clear`, and `resume` are deliberately
+ * absent: only the user starts, removes, or resumes a goal, so the model cannot
+ * construct those requests at all and cannot restart its own loop.
  */
 export const Input = Schema.Struct({
-  action: Schema.Literals(["set", "edit", "pause", "clear"]),
+  action: Schema.Literals(["edit", "pause"]),
   objective: Schema.optionalKey(Schema.String),
   expectedRevision: Schema.optionalKey(Schema.Number),
 })
@@ -28,8 +29,8 @@ export const Output = Schema.Struct({
 export const description = [
   "Read and change the session's goal.",
   "",
-  "`set` starts a new goal from `objective` and arms it; `edit` rewrites the objective of the current goal; `pause` stops the goal from running further rounds; `clear` removes it.",
-  "The user resumes a paused goal, so `resume` is not an action here. `expectedRevision` is an optional compare-and-set guard.",
+  "`edit` rewrites the objective of the current goal; `pause` stops the goal from running further rounds.",
+  "The user sets, clears, and resumes a goal, so those actions are not available here. `expectedRevision` is an optional compare-and-set guard.",
 ].join("\n")
 
 export const Plugin = {

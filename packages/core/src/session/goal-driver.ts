@@ -2,7 +2,7 @@ export * as SessionGoalDriver from "./goal-driver.js"
 
 import { Event } from "@opencode/schema/event"
 import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"
-import { Effect } from "effect"
+import { Effect, Scope, Stream } from "effect"
 import { Session } from "../session.js"
 import { SessionContext } from "./context.js"
 import { SessionEvent } from "./event.js"
@@ -52,23 +52,32 @@ export const scheduleRound = Effect.fn("SessionGoalDriver.scheduleRound")(functi
 })
 
 /**
- * The idle boundary. Every check is a gate that keeps the goal disarmed rather
- * than a retry: the next `session.execution.succeeded` re-evaluates all of them.
+ * The idle boundary. A human turn disarms the goal so it cannot preempt that
+ * turn; once the human queue is empty this boundary re-arms it. The same path
+ * recovers a goal that a failure, a compaction failure, or a restart left
+ * disarmed, so the user never has to pause and resume to get it running again.
+ * Every later check is a gate that admits no round rather than a retry: the
+ * next `session.execution.succeeded` re-evaluates all of them.
  */
 export const onSucceeded = Effect.fn("SessionGoalDriver.onSucceeded")(function* (
   sessionID: SessionSchema.ID,
   context: SessionContext.Interface,
 ) {
   const activation = yield* SessionGoalActivation.Service
-  if (!(yield* activation.isArmed(sessionID))) return
   const goal = yield* SessionGoal.Service
   const current = yield* goal.read(sessionID)
   if (current?.phase !== "active") return
+  const sessions = yield* Session.Service
+  const pending = yield* sessions.inbox(sessionID).pipe(Effect.orElseSucceed(() => []))
+  const humanWaiting = pending.some((item) => item.type === "user")
+  if (!humanWaiting && !(yield* activation.isArmed(sessionID))) yield* activation.arm(sessionID)
+  if (!(yield* activation.isArmed(sessionID))) return
   const verify = yield* SessionGoalVerify.Service
   yield* verify.verify(sessionID, context)
   const state = yield* goal.readState(sessionID)
   if (state.goal?.phase !== "active") return
-  if (state.todo.every(isSettled)) return
+  // An empty list is not done: the model still has to write the work down.
+  if (state.todo.length > 0 && state.todo.every(isSettled)) return
   if (state.rounds >= state.maxGoalRounds) {
     yield* goal.block(sessionID, {
       code: "max_rounds",
@@ -76,9 +85,10 @@ export const onSucceeded = Effect.fn("SessionGoalDriver.onSucceeded")(function* 
     })
     return
   }
-  const sessions = yield* Session.Service
-  const pending = yield* sessions.inbox(sessionID).pipe(Effect.orElseSucceed(() => []))
-  if (pending.some((item) => item.type === "user")) return
+  // A human item may have arrived while the verifier was in flight; the
+  // per-session queue has not processed its disarm event yet.
+  const pendingAfter = yield* sessions.inbox(sessionID).pipe(Effect.orElseSucceed(() => []))
+  if (pendingAfter.some((item) => item.type === "user")) return
   yield* scheduleRound(sessionID)
 })
 
@@ -108,6 +118,49 @@ export const handle = (
     if (event.type === "session.moved" || event.type === "session.forked")
       return yield* activation.disarm(event.data.sessionID)
     if (event.type === "session.compaction.failed") return yield* activation.disarm(event.data.sessionID)
+  })
+
+/**
+ * Runs the driver over an event stream. Events are grouped per session, so a
+ * slow verification for one session cannot delay another session's disarm.
+ * Order within a session is preserved, and an idle group is torn down after a
+ * minute so a long-lived process does not keep a fiber per session forever.
+ */
+export const run = <E>(
+  events: Stream.Stream<SessionGoalDriverEvent, E>,
+  context: SessionContext.Interface,
+): Effect.Effect<
+  void,
+  E,
+  | Scope.Scope
+  | SessionGoalActivation.Service
+  | SessionGoal.Service
+  | SessionGoalVerify.Service
+  | Session.Service
+> =>
+  Effect.gen(function* () {
+    const activation = yield* SessionGoalActivation.Service
+    yield* events.pipe(
+      Stream.groupByKey((event) => event.data.sessionID, { idleTimeToLive: "1 minute" }),
+      Stream.mapEffect(([sessionID, sessionEvents]) =>
+        sessionEvents.pipe(
+          Stream.runForEach((event) =>
+            handle(event, context).pipe(
+              // A failure anywhere in the driver — a failed verification, a failed
+              // checkpoint write — leaves the durable phase alone and stops this
+              // process from driving the goal until the next idle boundary re-arms it.
+              Effect.catchCause((cause) =>
+                Effect.logError("goal driver failed", cause).pipe(
+                  Effect.andThen(activation.disarm(sessionID)),
+                ),
+              ),
+            ),
+          ),
+          Effect.forkScoped({ startImmediately: true }),
+        ),
+      ),
+      Stream.runDrain,
+    )
   })
 
 const isSettled = (item: SessionGoalSchema.TodoItem) =>
