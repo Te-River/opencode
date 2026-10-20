@@ -78,6 +78,6 @@ const render = (snapshot: SessionGoalSchema.Snapshot, state: SessionGoalSchema.S
     `Objective: ${snapshot.objective}`,
     `Rounds: ${state.rounds}/${state.maxGoalRounds}.`,
     state.todo.length === 0
-      ? "Todo list: (empty; write it with the todo tool)"
+      ? "Todo list: (empty; write it with the goal_todo tool)"
       : `Todo list:\n${state.todo.map((item) => `- [${item.position}] ${item.status}: ${item.content}`).join("\n")}`,
   ].join("\n")

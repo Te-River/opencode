@@ -179,11 +179,11 @@ const renderRoundPrompt = (state: SessionGoalSchema.State) => {
     unmet.length === 0
       ? "The verifier has not rejected anything yet."
       : `The verifier did not accept these items:\n${unmet.join("\n")}`,
-    "Keep the list accurate with the todo tool. Only the verifier marks an item completed, so finish the work rather than the list.",
+    "Keep the list accurate with the goal_todo tool. Only the verifier marks an item completed, so finish the work rather than the list.",
   ].join("\n\n")
 }
 
 const renderTodo = (todo: ReadonlyArray<SessionGoalSchema.TodoItem>) =>
   todo.length === 0
-    ? "(the list is empty; write it with the todo tool)"
+    ? "(the list is empty; write it with the goal_todo tool)"
     : todo.map((item) => `- [${item.position}] ${item.status}: ${item.content}`).join("\n")
