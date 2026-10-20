@@ -76,6 +76,7 @@ import { PatchTool } from "../tool/plugin/patch.js"
 import { EditTool } from "../tool/plugin/edit.js"
 import { GlobTool } from "../tool/plugin/glob.js"
 import { GoalTool } from "../tool/plugin/goal.js"
+import { GoalTodoTool } from "../tool/plugin/goal-todo.js"
 import { GrepTool } from "../tool/plugin/grep.js"
 import { McpResourceTools } from "../tool/plugin/mcp-resource.js"
 import { OpenCodeTools } from "../tool/plugin/opencode.js"
@@ -252,6 +253,7 @@ const pre = [
   EditTool.Plugin,
   GlobTool.Plugin,
   GoalTool.Plugin,
+  GoalTodoTool.Plugin,
   GrepTool.Plugin,
   OpenCodeTools.Plugin,
   McpResourceTools.Plugin,

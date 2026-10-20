@@ -324,7 +324,7 @@ const layer = Layer.effect(
         yield* activation.disarm(sessionID)
         const snapshot = { ...goal, revision: goal.revision + 1, phase: "paused" as const }
         yield* publishUpdated(bus, sessionID, snapshot)
-        if (armed && input.interrupt !== false) yield* Effect.uninterruptible(execution.interrupt(sessionID, { reason: "user" }))
+        if (armed && input.interrupt !== false) yield* Effect.uninterruptible(execution.interrupt(sessionID))
         return snapshot
       }
       if (input.action === "resume") {
