@@ -2139,6 +2139,7 @@ export type SessionInfo = {
   allowance?: MoneyUSD
   tokens: TokenUsageInfo
   outcome?: "succeeded" | "failed" | "interrupted"
+  status: "idle" | "running"
   time: { created: number; updated: number; idle?: number; viewed?: number; archived?: number }
   title?: string
   subpath?: RelativePath
@@ -3269,6 +3270,7 @@ export type SessionImportInput = {
         readonly cache: { readonly read: number; readonly write: number }
       }
       readonly outcome?: "succeeded" | "failed" | "interrupted"
+      readonly status: "idle" | "running"
       readonly time: {
         readonly created: number
         readonly updated: number
@@ -3323,6 +3325,7 @@ export type SessionImportInput = {
         readonly cache: { readonly read: number; readonly write: number }
       }
       readonly outcome?: "succeeded" | "failed" | "interrupted"
+      readonly status: "idle" | "running"
       readonly time: {
         readonly created: number
         readonly updated: number
@@ -3377,6 +3380,7 @@ export type SessionImportInput = {
         readonly cache: { readonly read: number; readonly write: number }
       }
       readonly outcome?: "succeeded" | "failed" | "interrupted"
+      readonly status: "idle" | "running"
       readonly time: {
         readonly created: number
         readonly updated: number

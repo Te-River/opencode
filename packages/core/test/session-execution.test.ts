@@ -119,6 +119,112 @@ describe("SessionExecution lifecycle", () => {
     }),
   )
 
+  it.effect("reports running in Session.Info.status while the claim is held", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const store = yield* SessionStore.Service
+      const sessionID = Session.ID.make("ses_status_started")
+      yield* seedSessions(database, [sessionID])
+
+      const draining = yield* Deferred.make<void>()
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, () =>
+        Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never)),
+      )
+      const execution = Context.get(context, SessionExecution.Service)
+      expect((yield* store.get(sessionID))?.status).toBe("idle")
+
+      yield* execution.resume(sessionID).pipe(Effect.forkScoped)
+      yield* Deferred.await(draining)
+      expect((yield* store.get(sessionID))?.status).toBe("running")
+    }),
+  )
+
+  it.effect("reports idle in Session.Info.status after a succeeded or failed terminal", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const store = yield* SessionStore.Service
+      const succeeded = Session.ID.make("ses_status_succeeded")
+      const failed = Session.ID.make("ses_status_failed")
+      yield* seedSessions(database, [succeeded, failed])
+
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, ({ sessionID }) =>
+        sessionID === failed
+          ? Effect.fail(
+              new AIError({
+                reason: new TransportError({ message: "Disconnected", transport: "http", operation: "request" }),
+              }),
+            )
+          : Effect.void,
+      )
+      const execution = Context.get(context, SessionExecution.Service)
+
+      yield* execution.resume(succeeded)
+      expect((yield* store.get(succeeded))?.status).toBe("idle")
+      expect((yield* store.get(succeeded))?.outcome).toBe("succeeded")
+
+      yield* execution.resume(failed).pipe(Effect.exit)
+      expect((yield* store.get(failed))?.status).toBe("idle")
+      expect((yield* store.get(failed))?.outcome).toBe("failed")
+    }),
+  )
+
+  it.effect("reports idle in Session.Info.status after a deliberate interruption", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const store = yield* SessionStore.Service
+      const sessionID = Session.ID.make("ses_status_user_interrupt")
+      yield* seedSessions(database, [sessionID])
+
+      const draining = yield* Deferred.make<void>()
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, () =>
+        Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never)),
+      )
+      const execution = Context.get(context, SessionExecution.Service)
+
+      yield* execution.resume(sessionID).pipe(Effect.forkScoped)
+      yield* Deferred.await(draining)
+      expect((yield* store.get(sessionID))?.status).toBe("running")
+
+      expect(yield* execution.interrupt(sessionID)).toBeTrue()
+      yield* execution.awaitIdle(sessionID)
+      expect((yield* store.get(sessionID))?.status).toBe("idle")
+      expect((yield* store.get(sessionID))?.outcome).toBe("interrupted")
+    }),
+  )
+
+  it.effect("keeps running in Session.Info.status through a shutdown interruption", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const store = yield* SessionStore.Service
+      const sessionID = Session.ID.make("ses_status_shutdown")
+      yield* seedSessions(database, [sessionID])
+
+      const draining = yield* Deferred.make<void>()
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, () =>
+        Deferred.succeed(draining, undefined).pipe(Effect.andThen(Effect.never)),
+      )
+      const execution = Context.get(context, SessionExecution.Service)
+
+      yield* execution.resume(sessionID).pipe(Effect.forkScoped)
+      yield* Deferred.await(draining)
+      expect((yield* store.get(sessionID))?.status).toBe("running")
+
+      // Teardown keeps the claim so the next start resumes the turn, so the durable status must not
+      // flip to idle while the work is still unfinished.
+      yield* Scope.close(scope, Exit.void)
+      expect((yield* claims(database))[sessionID]).toBe(true)
+      expect((yield* store.get(sessionID))?.status).toBe("running")
+    }),
+  )
+
   it.effect("a user interrupt releases the claim so the turn never resurrects", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service

@@ -12,7 +12,7 @@ import { MessageDecodeError } from "./error.js"
 import { SessionMessage } from "./message.js"
 import { Session } from "@opencode/schema/session"
 import { SessionMessageTable, SessionTable } from "./sql.js"
-import { fromRow } from "./info.js"
+import { fromRow, running } from "./info.js"
 
 const ListInputBase = {
   workspaceID: Workspace.ID.pipe(Schema.optional),
@@ -64,6 +64,11 @@ export interface Interface {
    * children are resumed separately through their durable Job records.
    */
   readonly listSuspended: () => Effect.Effect<ReadonlyArray<Session.ID>>
+  /**
+   * Every Session holding an execution claim, at any depth. This is the durable form of
+   * `Session.Info.status === "running"`, so a reader never has to restate the predicate.
+   */
+  readonly listRunning: () => Effect.Effect<ReadonlyArray<Session.ID>>
   /**
    * Records the execution claim: the durable write-ahead intent that a turn is
    * (or was) in flight. Set when execution starts; a claim that survives to the
@@ -199,6 +204,17 @@ const layer = Layer.effect(
           .select({ sessionID: SessionTable.id })
           .from(SessionTable)
           .where(and(isNotNull(SessionTable.time_suspended), isNull(SessionTable.parent_id)))
+          .all()
+          .pipe(
+            Effect.orDie,
+            Effect.map((rows) => rows.map((row) => row.sessionID)),
+          )
+      }),
+      listRunning: Effect.fn("SessionStore.listRunning")(function* () {
+        return yield* db
+          .select({ sessionID: SessionTable.id })
+          .from(SessionTable)
+          .where(running)
           .all()
           .pipe(
             Effect.orDie,

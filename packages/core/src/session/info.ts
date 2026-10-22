@@ -1,13 +1,26 @@
+import { isNotNull } from "drizzle-orm"
 import { DateTime, Schema } from "effect"
 import { Model } from "@opencode/schema/model"
 import { Provider } from "@opencode/schema/provider"
 import { AbsolutePath, RelativePath } from "../schema.js"
 import { SessionSchema } from "./schema.js"
-import type { SessionTable } from "./sql.js"
+import { SessionTable } from "./sql.js"
 import { PersistedRevert } from "@opencode/schema/session-revert"
 import { Money } from "@opencode/schema/money"
 
 const decodeRevert = Schema.decodeUnknownSync(PersistedRevert)
+
+/**
+ * The durable execution predicate. The claim column is written and released in the same
+ * transaction as the execution lifecycle events, so reading it back is the Session status — no new
+ * table, event, or timer. Defined here once; `fromRow` and the bulk `running` query below share it.
+ */
+export function status(row: Pick<typeof SessionTable.$inferSelect, "time_suspended">): SessionSchema.Info["status"] {
+  return row.time_suspended === null ? "idle" : "running"
+}
+
+/** Query form of `status` for bulk reads, so callers never restate the predicate. */
+export const running = isNotNull(SessionTable.time_suspended)
 
 export function fromRow(row: typeof SessionTable.$inferSelect): SessionSchema.Info {
   return SessionSchema.Info.make({
@@ -50,6 +63,7 @@ export function fromRow(row: typeof SessionTable.$inferSelect): SessionSchema.In
     permissions: row.permission ?? undefined,
     revert: row.revert ? decodeRevert(row.revert) : undefined,
     outcome: row.idle_outcome ?? undefined,
+    status: status(row),
     time: {
       created: DateTime.makeUnsafe(row.time_created),
       updated: DateTime.makeUnsafe(row.time_updated),
