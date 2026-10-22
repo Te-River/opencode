@@ -1557,6 +1557,7 @@ export function createData(config: CreateDataInput) {
             model: payload.model,
             cost: 0,
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            status: "idle",
             time: { created: now, updated: now },
             title: payload.title,
             location,

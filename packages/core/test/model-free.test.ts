@@ -69,6 +69,7 @@ for (const flag of [undefined, "0", "1", "true"]) {
             model: { id: free, providerID },
             cost: Money.USD.zero,
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            status: "idle",
             time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
             location: ref,
           })
