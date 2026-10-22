@@ -177,10 +177,18 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
         input.comments.clear()
         clearSubmission(input, submission)
         void sending.then((result) => {
-          if (!result.ok)
+          if (!result.ok) {
             failSubmission(input, session, "prompt", result.error, restore, value.id, () => {
               if (optimisticBusy) session.data.session.setStatus(session.id, "idle")
             })
+
+            return
+          }
+
+          // The optimistic "running" is only a guess. Re-read the durable status so a prompt the server admitted
+          // but never executed cannot leave the session marked working.
+          session.data.session.invalidate(session.id)
+          void session.data.session.sync(session.id).catch(() => undefined)
         })
 
         return

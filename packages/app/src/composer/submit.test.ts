@@ -108,6 +108,9 @@ function session(input: {
   prompt?: (value: Parameters<ComposerSession["data"]["session"]["prompt"]>[0]) => Promise<void>
   handoff?: ComposerSession["handoff"]
   statuses?: ("idle" | "running")[]
+  invalidations?: string[]
+  syncs?: string[]
+  sync?: ComposerSession["data"]["session"]["sync"]
   current?: ComposerSession["current"]
   admitted?: (messageID: string) => boolean
   shell?: ComposerSession["api"]["shell"]
@@ -148,6 +151,11 @@ function session(input: {
       location: { command: { list: () => [] } },
       session: {
         setStatus: (_sessionID, status) => input.statuses?.push(status),
+        invalidate: (sessionID) => input.invalidations?.push(sessionID),
+        sync: async (sessionID) => {
+          input.syncs?.push(sessionID)
+          await input.sync?.(sessionID)
+        },
         // Like the data layer: admit locally, prepare, then send.
         prompt: async (value) => {
           input.calls.push("admit")
@@ -250,14 +258,24 @@ describe("Composer submission", () => {
     async (delivery) => {
       const state = createMemoryComposerState({ prompt: "ship it" }).capture()
       const committed = Promise.withResolvers<void>()
+      const reSourced = Promise.withResolvers<void>()
       const handoffs: SessionMessageHandoff[] = []
       const statuses: ("idle" | "running")[] = []
+      const invalidations: string[] = []
+      const syncs: string[] = []
 
       const target = session({
         calls: [],
         statuses,
+        invalidations,
+        syncs,
         handoff: { set: (handoff) => handoffs.push(handoff), clear() {} },
         switchModel: async () => committed.promise,
+        // The durable read reports idle: admitted, but the server never started executing it.
+        sync: async () => {
+          statuses.push("idle")
+          reSourced.resolve()
+        },
       })
 
       await submitInput(active(state, target), undefined, "normal", undefined, undefined, undefined, delivery).submit(
@@ -265,7 +283,6 @@ describe("Composer submission", () => {
       )
 
       expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }])
-      expect(statuses).toEqual(["running"])
       // A queued prompt shows in the queue once admitted, not in the transcript.
       expect(handoffs).toMatchObject(
         delivery === "steer"
@@ -277,7 +294,13 @@ describe("Composer submission", () => {
             ]
           : [],
       )
+
       committed.resolve()
+      // The optimistic status only holds until the successful admission re-reads the durable status.
+      await reSourced.promise
+      expect(statuses).toEqual(["running", "idle"])
+      expect(invalidations).toEqual(["session-1"])
+      expect(syncs).toEqual(["session-1"])
     },
   )
 
@@ -399,12 +422,16 @@ describe("Composer submission", () => {
     const attempts: string[] = []
     const calls: string[] = []
     const statuses: ("idle" | "running")[] = []
+    const invalidations: string[] = []
+    const syncs: string[] = []
     const first = Promise.withResolvers<void>()
     const second = Promise.withResolvers<void>()
 
     const target = session({
       calls,
       statuses,
+      invalidations,
+      syncs,
       prompt: async (value) => {
         attempts.push(value.id ?? "")
         throw new Error("network unavailable")
@@ -431,6 +458,9 @@ describe("Composer submission", () => {
     const submitted = ["admit", "switch-agent", "switch-model", "send", "admit", "send"]
     expect(calls).toEqual([...submitted, ...submitted])
     expect(statuses).toEqual(["running", "idle", "running", "idle"])
+    // A failed admission resets locally; only a successful one re-reads the durable status.
+    expect(invalidations).toEqual([])
+    expect(syncs).toEqual([])
     expect(state.current()).toEqual(prompt)
     expect(state.context.items()).toMatchObject([
       { type: "file", path: "notes.md", description: "the failing version" },

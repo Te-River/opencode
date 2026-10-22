@@ -69,29 +69,34 @@ export function createSessionBackground(input: {
       return message.time.completed === undefined ? message : latest
     }, undefined)
 
+    // A parent the durable status says is idle cannot still be running a tool: any part left running is stale.
+    const blocking =
+      id && input.status(id) === "running"
+        ? (assistant?.content.flatMap((part) => {
+            if (part.type !== "tool" || part.state.status !== "running") return []
+
+            if (part.name !== "shell" && part.name !== "subagent") return []
+            const value = part.name === "shell" ? part.state.metadata.shellID : part.state.metadata.sessionID
+            const label = part.name === "shell" ? part.state.input.command : part.state.input.description
+
+            return [
+              {
+                type: part.name as "shell" | "subagent",
+                partID: part.id,
+                id: typeof value === "string" ? value : undefined,
+                label: typeof label === "string" ? label : undefined,
+              },
+            ]
+          }) ?? [])
+        : []
+
     return {
-      // Completion notices can identify the shell or its original tool call.
-      subagents: subagents.filter((task) => !completed.has(task.id)),
+      // A lost completion notice does not matter: the child's durable status is the completion fact.
+      subagents: subagents.filter((task) => !completed.has(task.id) && input.status(task.id) !== "idle"),
       shells: shells
         .filter((item) => !completed.has(item.partID) && !completed.has(item.task.id))
         .map((item) => item.task),
-      blocking:
-        assistant?.content.flatMap((part) => {
-          if (part.type !== "tool" || part.state.status !== "running") return []
-
-          if (part.name !== "shell" && part.name !== "subagent") return []
-          const value = part.name === "shell" ? part.state.metadata.shellID : part.state.metadata.sessionID
-          const label = part.name === "shell" ? part.state.input.command : part.state.input.description
-
-          return [
-            {
-              type: part.name as "shell" | "subagent",
-              partID: part.id,
-              id: typeof value === "string" ? value : undefined,
-              label: typeof label === "string" ? label : undefined,
-            },
-          ]
-        }) ?? [],
+      blocking,
     }
   })
 
