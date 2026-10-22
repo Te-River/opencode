@@ -215,7 +215,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
           identifier: "session.active",
           summary: "List active sessions",
           description:
-            "Retrieve foreground Session drains currently owned by this OpenCode process. Sessions absent from the result are inactive.",
+            "Retrieve Sessions holding an execution claim, including child Sessions. The claim is durable: it is written when execution starts and released at every terminal except a shutdown interruption, which keeps it so the next start resumes that turn. Sessions absent from the result are idle.",
         }),
       ),
     )

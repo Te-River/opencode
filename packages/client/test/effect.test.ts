@@ -338,6 +338,7 @@ const session = {
       viewed: 1_717_171_717_001,
     },
     title: "Test",
+    status: "idle",
     location: { directory: "/tmp/project" },
   },
 }
