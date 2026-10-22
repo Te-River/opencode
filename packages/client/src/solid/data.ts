@@ -292,6 +292,14 @@ export function createData(config: CreateDataInput) {
     setStore("session", "active", sessionID, status)
   }
 
+  // Every read that returns a session record reconciles the active map from its durable
+  // status, including a plain "idle": a later read must be able to correct an optimistic
+  // "running" that no execution ever confirmed.
+  function recordSession(info: SessionInfo) {
+    setStore("session", "info", info.id, reconcile(info))
+    setSessionActive(info.id, info.status)
+  }
+
   function removePending(sessionID: string, inboxID?: string) {
     if (!inboxID) return
     pendingUpdates.get(sessionID)?.set(inboxID, undefined)
@@ -1414,7 +1422,7 @@ export function createData(config: CreateDataInput) {
       },
       remember(info: SessionInfo) {
         batch(() => {
-          setStore("session", "info", info.id, reconcile(info))
+          recordSession(info)
           sync.complete(`session:${info.id}`)
           registerSession(info.id)
         })
@@ -1696,6 +1704,7 @@ export function createData(config: CreateDataInput) {
             for (const session of sessions) {
               sync.complete(`session:${session.id}`)
               registerSession(session.id)
+              setSessionActive(session.id, session.status)
             }
           })
         })

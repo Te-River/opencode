@@ -10,6 +10,7 @@ const session = (viewed: number): SessionInfo => ({
   cost: 0,
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   outcome: "succeeded",
+  status: "idle",
   time: { created: 0, updated: 0, idle: 2, viewed },
   location: { directory: "/project" },
 })
@@ -1158,6 +1159,52 @@ test("ignores activity snapshots from an older connection", async () => {
     expect(setup.data.session.status("ses_old")).toBe("idle")
   } finally {
     reads.forEach((read) => read.resolve(Response.json({ data: {} })))
+    setup.dispose()
+  }
+})
+
+test("reconciles the active map from a remembered durable status", () => {
+  const setup = activityFixture(() => Response.json({ data: {} }))
+
+  try {
+    setup.data.session.setStatus("ses_refresh", "running")
+    setup.data.session.remember({ ...session(0), status: "idle" })
+    expect(setup.data.session.status("ses_refresh")).toBe("idle")
+
+    setup.data.session.remember({ ...session(0), status: "running" })
+    expect(setup.data.session.status("ses_refresh")).toBe("running")
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("reconciles the active map from the durable status a session read returns", async () => {
+  let status: SessionInfo["status"] = "idle"
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (!new URL(request.url).pathname.endsWith("/api/session/ses_refresh"))
+        throw new Error(`Unexpected request: ${request.url}`)
+      return Response.json({ data: { ...session(0), status } })
+    },
+  })
+  const setup = createRoot((dispose) => ({
+    data: createData({ api: () => api, directory: "/project", event: { on: () => () => {}, listen: () => () => {} } }),
+    dispose,
+  }))
+
+  try {
+    setup.data.session.setStatus("ses_refresh", "running")
+    await setup.data.session.sync("ses_refresh")
+    expect(setup.data.session.status("ses_refresh")).toBe("idle")
+
+    status = "running"
+    setup.data.session.setStatus("ses_refresh", "idle")
+    setup.data.session.invalidate("ses_refresh")
+    await setup.data.session.sync("ses_refresh")
+    expect(setup.data.session.status("ses_refresh")).toBe("running")
+  } finally {
     setup.dispose()
   }
 })
