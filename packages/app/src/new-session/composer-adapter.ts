@@ -172,6 +172,8 @@ export function createNewSessionComposerAdapter(props: {
             location: data.location,
             session: {
               setStatus: data.session.setStatus,
+              invalidate: data.session.invalidate,
+              sync: data.session.sync,
               prompt: (input) =>
                 data.session.prompt({
                   ...input,

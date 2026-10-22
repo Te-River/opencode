@@ -80,6 +80,8 @@ export type ComposerSession = {
     session: {
       prompt: (input: Parameters<Data["session"]["prompt"]>[0]) => ReturnType<Data["session"]["prompt"]>
       setStatus: Data["session"]["setStatus"]
+      invalidate: Data["session"]["invalidate"]
+      sync: Data["session"]["sync"]
     }
   }
   current: Accessor<
