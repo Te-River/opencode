@@ -43,6 +43,13 @@ export const Info = Schema.Struct({
   tokens: TokenUsage.Info,
   /** Outcome of the last completed execution, recorded at `time.idle`. Absent until a run reaches a terminal transition. */
   outcome: Schema.Literals(["succeeded", "failed", "interrupted"]).pipe(optional),
+  /**
+   * Durable execution status derived from the execution claim: the claim is written and released in
+   * the same transaction as the execution lifecycle events, so `running` means a turn was started and
+   * has not reached a claim-releasing terminal yet. A claim preserved through a shutdown interruption
+   * stays `running` because that turn resumes on the next start.
+   */
+  status: Schema.Literals(["idle", "running"]),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
     updated: DateTimeUtcFromMillis,
