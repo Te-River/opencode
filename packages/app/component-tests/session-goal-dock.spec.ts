@@ -30,6 +30,37 @@ story("formats an hour or more as hours and minutes", async ({ mount }) => {
   await expect(component.locator('[data-slot="session-goal-elapsed"]')).toHaveText("1h 35m")
 })
 
+story("keeps a stopped goal's elapsed time frozen across a remount", async ({ mount }) => {
+  const first = await mount("app-session-goal-dock--paused-frozen")
+  const elapsed = first.locator('[data-slot="session-goal-elapsed"]')
+  await expect(elapsed).toHaveText("1m 5s")
+
+  // A reload re-reads the durable goal, which carries no phase-change time: the frozen
+  // value must come from the recorded transition, not from the read time.
+  const second = await mount("app-session-goal-dock--paused-frozen")
+  await expect(second.locator('[data-slot="session-goal-elapsed"]')).toHaveText("1m 5s")
+})
+
+story("surfaces the still-active notice after an interruption", async ({ mount }) => {
+  const component = await mount("app-session-goal-dock--active-interrupted")
+  const goal = component.locator('[data-component="session-goal-dock"]')
+  const hint = goal.locator('[data-slot="session-goal-hint"]')
+  await expect(hint).toContainText(
+    "Goal still active; it continues after your next message. /goal pause to stop.",
+  )
+
+  await component.getByRole("button", { name: "Dismiss goal notice" }).click()
+  await expect(hint).toHaveCount(0)
+})
+
+story("stays quiet for an active goal this process is armed for", async ({ mount }) => {
+  const armed = await mount("app-session-goal-dock--active")
+  await expect(armed.locator('[data-slot="session-goal-hint"]')).toHaveCount(0)
+
+  const stopped = await mount("app-session-goal-dock--active-stopped")
+  await expect(stopped.locator('[data-slot="session-goal-hint"]')).toHaveCount(0)
+})
+
 story("renders the goal todo list", async ({ mount }) => {
   const component = await mount("app-session-goal-dock--todos")
   const goal = component.locator('[data-component="session-goal-dock"]')

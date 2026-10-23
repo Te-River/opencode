@@ -7,6 +7,10 @@ type Goal = NonNullable<SessionGoalState["goal"]>
 
 const OBJECTIVE = "Ship the goal indicator and todo dock"
 
+// The frozen story pins both ends of the measured span, so a remount cannot move the value.
+const FROZEN_CREATED_AT = Date.now() - 600_000
+const FROZEN_AT = FROZEN_CREATED_AT + 65_000
+
 const TODOS: SessionGoalState["todo"] = [
   { position: 0, content: "Wire the goal store", status: "completed" },
   { position: 1, content: "Render the todo list", status: "in_progress" },
@@ -41,12 +45,17 @@ function state(
 }
 
 // The dock's actions are local to the story, so exploring it never reaches a server.
-function fixture(initial: SessionGoalState): SessionGoalModel {
+function fixture(
+  initial: SessionGoalState,
+  options: { phaseChangedAt?: number; interrupted?: boolean } = {},
+): SessionGoalModel {
   const [store, setStore] = createStore<{ value: SessionGoalState }>({ value: initial })
   const patch = (current: Goal | undefined, next: Partial<Goal>) => (current ? { ...current, ...next } : undefined)
 
   return {
     state: () => store.value,
+    phaseChangedAt: () => options.phaseChangedAt,
+    interrupted: () => options.interrupted ?? false,
     pause: () => {
       setStore("value", "goal", (current) => patch(current, { phase: "paused" }))
       return undefined
@@ -67,8 +76,11 @@ function fixture(initial: SessionGoalState): SessionGoalModel {
 }
 
 // A component body runs once per mount, so the fixture survives the renderer's re-renders.
-function GoalDockStory(props: { initial: SessionGoalState }) {
-  const model = fixture(props.initial)
+function GoalDockStory(props: {
+  initial: SessionGoalState
+  options?: { phaseChangedAt?: number; interrupted?: boolean }
+}) {
+  const model = fixture(props.initial, props.options)
 
   return <SessionGoalDock model={model} />
 }
@@ -89,6 +101,21 @@ export const Active = {
 
 export const ActiveStopped = {
   render: () => <GoalDockStory initial={state("active", {}, { armed: false })} />,
+}
+
+export const ActiveInterrupted = {
+  render: () => (
+    <GoalDockStory
+      initial={state("active", {}, { armed: false })}
+      options={{ interrupted: true, phaseChangedAt: FROZEN_AT }}
+    />
+  ),
+}
+
+export const PausedFrozen = {
+  render: () => (
+    <GoalDockStory initial={state("paused", {}, { createdAt: FROZEN_CREATED_AT })} options={{ phaseChangedAt: FROZEN_AT }} />
+  ),
 }
 
 export const Paused = {

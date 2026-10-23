@@ -78,6 +78,34 @@ test("re-reads the goal read model for every goal and todo event", async () => {
   expect(fixture.calls).toHaveLength(events.length + 1)
 })
 
+test("records the phase-change time from the event that carried it", async () => {
+  using fixture = setup()
+  await fixture.data.session.goal.sync(sessionID)
+  fixture.emit(events[0])
+  await wait(() => fixture.calls.length === 2)
+  expect(fixture.data.session.goal.phaseChange(sessionID)).toEqual({
+    goalID: "goal_test",
+    phase: "paused",
+    at: 10,
+  })
+
+  // An event in the same phase (an edit, a round) keeps the time the phase was entered,
+  // so a stopped goal's elapsed time does not drift.
+  const edited = {
+    id: "evt_goal_edited",
+    created: 20,
+    type: "session.goal.updated",
+    durable: { aggregateID: sessionID, seq: 5, version: 1 },
+    data: {
+      sessionID,
+      snapshot: { id: "goal_test", revision: 3, objective: "Ship the todo dock", phase: "paused" as const, maxGoalRounds: 8 },
+    },
+  } satisfies OpenCodeEvent
+  fixture.emit(edited)
+  await wait(() => fixture.calls.length === 3)
+  expect(fixture.data.session.goal.phaseChange(sessionID)?.at).toBe(10)
+})
+
 test("leaves a goal no reader has loaded alone", async () => {
   using fixture = setup()
   fixture.emit(events[0])
