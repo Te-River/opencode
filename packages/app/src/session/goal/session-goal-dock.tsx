@@ -43,8 +43,18 @@ export function SessionGoalDock(props: { model: SessionGoalModel }) {
 
     return typeof value === "number" ? value : undefined
   }
-  const [store, setStore] = createStore<{ editing: string | undefined }>({ editing: undefined })
+  const [store, setStore] = createStore<{ editing: string | undefined; hintDismissed: boolean }>({
+    editing: undefined,
+    hintDismissed: false,
+  })
   let input: HTMLInputElement | undefined
+
+  // An interruption by hand only stops the current turn: an active goal the process is not
+  // armed for resumes on the next message, and the user has no way to see that. The hint
+  // dismisses by hand, and comes back only after it stops applying.
+  const hint = () => goal()?.phase === "active" && props.model.state()?.armed === false && props.model.interrupted()
+
+  createEffect(on(hint, (visible) => (visible ? undefined : setStore("hintDismissed", false))))
 
   // A goal that disappears abandons an inline edit.
   createEffect(on(goal, () => setStore("editing", undefined)))
@@ -72,8 +82,11 @@ export function SessionGoalDock(props: { model: SessionGoalModel }) {
                 objective={goal.objective}
                 phase={goal.phase}
                 createdAt={createdAt()}
+                frozenAt={props.model.phaseChangedAt()}
                 blockedReason={goal.blockedReason?.message}
                 stopped={goal.phase === "active" && props.model.state()?.armed === false}
+                hint={hint() && !store.hintDismissed}
+                onDismissHint={() => setStore("hintDismissed", true)}
                 todo={props.model.state()?.todo ?? []}
               />
             }
@@ -115,12 +128,15 @@ function SessionGoalProgress(props: {
   objective: string
   phase: GoalPhase
   createdAt?: number
+  frozenAt?: number
   blockedReason?: string
   stopped: boolean
+  hint: boolean
+  onDismissHint: () => void
   todo: SessionGoalState["todo"]
 }) {
   const language = useLanguage()
-  const [clock, setClock] = createStore({ elapsed: 0 })
+  const [clock, setClock] = createStore({ elapsed: 0, ended: 0 })
   let timer: ReturnType<typeof setInterval> | undefined
 
   const stop = () => {
@@ -129,24 +145,33 @@ function SessionGoalProgress(props: {
     timer = undefined
   }
 
-  const tick = () => {
+  // Elapsed time only advances while the goal is active. A stopped goal measures up to the
+  // phase change the client recorded; without one, it measures up to the moment this render
+  // first saw the goal outside `active`, so the value never grows past that point.
+  const span = () => {
     if (props.createdAt === undefined) return
-    setClock("elapsed", Math.max(0, Math.round((Date.now() - props.createdAt) / 1000)))
+    const end = props.phase === "active" ? Date.now() : (props.frozenAt ?? clock.ended)
+
+    return Math.max(0, Math.round((end - props.createdAt) / 1000))
   }
 
-  // Elapsed time only advances while the goal is active. Leaving the phase
-  // freezes the last value instead of hiding it, so paused and complete goals
-  // still show how long they ran.
+  const tick = () => {
+    setClock("elapsed", span() ?? 0)
+  }
+
   createEffect(
     on(
       () => props.phase,
       (phase) => {
         stop()
+        setClock("ended", phase === "active" ? 0 : Date.now())
         tick()
         if (phase === "active") timer = setInterval(tick, 1000)
       },
     ),
   )
+  // The recording can land after the phase does, when the goal re-read follows its event.
+  createEffect(on(() => props.frozenAt, tick))
   onCleanup(stop)
 
   const elapsed = createMemo(() => {
@@ -191,6 +216,18 @@ function SessionGoalProgress(props: {
           {(reason) => <span data-slot="session-goal-blocked">{reason()}</span>}
         </Show>
       </div>
+      <Show when={props.hint}>
+        <p data-slot="session-goal-hint">
+          <span data-slot="session-goal-hint-text">{language.t("session.goal.stillActive")}</span>
+          <Button
+            variant="ghost"
+            size="small"
+            icon="close-small"
+            aria-label={language.t("session.goal.hintDismiss")}
+            onClick={props.onDismissHint}
+          />
+        </p>
+      </Show>
       <Show when={props.todo.length > 0}>
         <ul data-slot="session-goal-todos" aria-label={language.t("session.goal.todos")}>
           {props.todo.slice(0, TODO_LIMIT).map((item) => (

@@ -588,6 +588,8 @@ export const dict = {
   "session.goal.paused": "Paused",
   "session.goal.complete": "Complete",
   "session.goal.stopped": "Stopped",
+  "session.goal.stillActive": "Goal still active; it continues after your next message. /goal pause to stop.",
+  "session.goal.hintDismiss": "Dismiss goal notice",
   "session.goal.todos": "Goal todos",
   "session.goal.todo.pending": "Pending: {{content}}",
   "session.goal.todo.inProgress": "In progress: {{content}}",

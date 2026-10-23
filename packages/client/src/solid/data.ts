@@ -110,6 +110,8 @@ type LocationData = {
   skill?: SkillInfo[]
 }
 
+type GoalPhase = NonNullable<SessionGoalState["goal"]>["phase"]
+
 type Store = {
   session: {
     info: Record<string, SessionInfo>
@@ -127,6 +129,9 @@ type Store = {
     form: Record<string, FormWithLocation[]>
     // Latest goal read model per session, including the process-local `armed` flag.
     goal: Record<string, SessionGoalState>
+    // The phase each session's goal entered and the event that carried it. The durable read
+    // model has no phase-change time, so this is what lets a stopped goal freeze its elapsed time.
+    goalPhase: Record<string, { goalID: string; phase: GoalPhase; at: number }>
   }
   project: {
     info: Record<string, Project>
@@ -270,6 +275,7 @@ export function createData(config: CreateDataInput) {
       permission: {},
       form: {},
       goal: {},
+      goalPhase: {},
     },
     project: {
       info: {},
@@ -851,6 +857,17 @@ export function createData(config: CreateDataInput) {
       case "session.todo.updated":
       case "session.todo.verified": {
         const sessionID = event.data.sessionID
+        // Only a phase change moves the freeze point: an edit or a round keeps the time the
+        // phase was entered, so a stopped goal's elapsed time does not drift.
+        if (event.type === "session.goal.updated") {
+          const snapshot = event.data.snapshot
+          if (store.session.goalPhase[sessionID]?.phase !== snapshot.phase)
+            setStore("session", "goalPhase", sessionID, {
+              goalID: snapshot.id,
+              phase: snapshot.phase,
+              at: event.created,
+            })
+        }
         // The events carry neither `armed` nor the full todo list, so a loaded goal
         // re-reads the read model instead of patching the store from the payload.
         const loaded = store.session.goal[sessionID] !== undefined || sync.has(`session.goal:${sessionID}`)
@@ -1898,6 +1915,9 @@ export function createData(config: CreateDataInput) {
       goal: {
         list(sessionID: string) {
           return store.session.goal[sessionID]
+        },
+        phaseChange(sessionID: string) {
+          return store.session.goalPhase[sessionID]
         },
         sync(sessionID: string) {
           return sync.run(`session.goal:${sessionID}`, async () => {
