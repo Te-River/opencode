@@ -22,10 +22,23 @@ export const detectMediaType = (bytes: Uint8Array): string | undefined => {
   if (startsWith(bytes, [0x25, 0x50, 0x44, 0x46])) return "application/pdf"
   // ftyp is shared by AVIF, M4A, MOV and MP4; the major brand at offset 8 disambiguates.
   if (bytes.length >= 12 && ascii(bytes, 4, 8) === "ftyp") {
+    // AVIF, HEIC, QuickTime and M4A share MP4's container; the major brand tells them apart, and generic HEIF brands
+    // list `avif`/`avis` among the compatible brands that follow the minor version.
     const brand = ascii(bytes, 8, 12)
-    if (brand === "avif" || brand === "avis") return "image/avif"
-    if (brand === "M4A ") return "audio/mp4"
+    const boxEnd = Math.min(new DataView(bytes.buffer, bytes.byteOffset).getUint32(0), bytes.length)
+    const compatible = Array.from({ length: Math.floor((boxEnd - 16) / 4) }, (_, index) =>
+      ascii(bytes, 16 + index * 4, 20 + index * 4),
+    )
+    const generic = brand === "mif1" || brand === "msf1"
+    if (
+      brand === "avif" ||
+      brand === "avis" ||
+      (generic && (compatible.includes("avif") || compatible.includes("avis")))
+    )
+      return "image/avif"
+    if (generic || ["heic", "heix", "hevc", "hevx"].includes(brand)) return "image/heic"
     if (brand === "qt  ") return "video/quicktime"
+    if (brand === "M4A ") return "audio/mp4"
     return "video/mp4"
   }
   if (startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])) return "video/webm"
