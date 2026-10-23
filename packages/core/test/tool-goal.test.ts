@@ -9,6 +9,7 @@ import { Database } from "@opencode/core/database/database"
 import { Project } from "@opencode/core/project"
 import { ProjectTable } from "@opencode/core/project/sql"
 import { AbsolutePath } from "@opencode/core/schema"
+import { SessionContext } from "@opencode/core/session/context"
 import { SessionEvent } from "@opencode/core/session/event"
 import { SessionExecution } from "@opencode/core/session/execution"
 import { SessionGoal } from "@opencode/core/session/goal"
@@ -177,6 +178,29 @@ describe("GoalTodoTool", () => {
       expect(yield* goal.readTodo(sessionID)).toEqual([
         { position: 0, content: "first", status: "in_progress", acceptance: undefined, feedback: undefined },
       ])
+    }),
+  )
+})
+
+describe("goal tool visibility", () => {
+  toolIt.effect("offers the goal tools only once the session has a goal", () =>
+    Effect.gen(function* () {
+      const { db, goal, tools } = yield* setup
+      const names = (snapshot: Tool.Snapshot) => snapshot.definitions.map((definition) => definition.name)
+      const registered = yield* tools.snapshot()
+      expect(names(registered)).toContain("goal")
+      expect(names(registered)).toContain("goal_todo")
+
+      // A session with no goal is not offered either tool.
+      const withoutGoal = yield* SessionContext.forSession(db, registered, sessionID)
+      expect(names(withoutGoal)).not.toContain("goal")
+      expect(names(withoutGoal)).not.toContain("goal_todo")
+
+      // The same session gains them as soon as the goal exists.
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      const withGoal = yield* SessionContext.forSession(db, registered, sessionID)
+      expect(names(withGoal)).toContain("goal")
+      expect(names(withGoal)).toContain("goal_todo")
     }),
   )
 })
