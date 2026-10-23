@@ -120,9 +120,10 @@ export const projectTodoUpdated = Effect.fn("SessionGoal.projectTodoUpdated")(fu
 })
 
 /**
- * Apply one verifier verdict. The verdict carries the goal revision it judged; a
- * stale revision (the list changed since) is rejected, and rounds only advance when
- * a goal row exists.
+ * Apply one verifier verdict. The verdict carries the goal revision it judged and a
+ * stale revision (the list changed since) is rejected. The round counter is not
+ * touched here: the driver owns it (see `recordRound`), so a verifier that
+ * publishes no verdict cannot let the driver schedule rounds for free.
  */
 export const projectTodoVerified = Effect.fn("SessionGoal.projectTodoVerified")(function* (
   db: DatabaseService,
@@ -150,10 +151,24 @@ export const projectTodoVerified = Effect.fn("SessionGoal.projectTodoVerified")(
         .pipe(Effect.orDie),
     { discard: true },
   )
+})
+
+/**
+ * Count one round the driver is about to schedule. The count lives in the goal row
+ * rather than in a verified event, because the driver can schedule a round whose
+ * verification never publishes anything: an in-process count would not survive a
+ * restart, and one derived from verdicts would stay at zero. Only an active goal
+ * is counted, so a goal that settled while the round was being admitted keeps its
+ * final count.
+ */
+export const recordRound = Effect.fn("SessionGoal.recordRound")(function* (
+  db: DatabaseService,
+  sessionID: SessionSchema.ID,
+) {
   yield* db
     .update(SessionGoalTable)
     .set({ rounds: sql`${SessionGoalTable.rounds} + 1` })
-    .where(eq(SessionGoalTable.session_id, input.sessionID))
+    .where(and(eq(SessionGoalTable.session_id, sessionID), eq(SessionGoalTable.phase, "active")))
     .run()
     .pipe(Effect.orDie)
 })
@@ -235,6 +250,11 @@ export interface Interface {
   readonly read: (sessionID: SessionSchema.ID) => Effect.Effect<SessionGoalSchema.Snapshot | undefined>
   readonly readTodo: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<SessionGoalSchema.TodoItem>>
   readonly readState: (sessionID: SessionSchema.ID) => Effect.Effect<SessionGoalSchema.State>
+  /**
+   * Counts a round the driver is scheduling. The driver is the only writer, so the
+   * durable count is exactly the number of rounds it has admitted.
+   */
+  readonly recordRound: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   readonly update: (
     sessionID: SessionSchema.ID,
     input: UpdateInput,
@@ -381,6 +401,7 @@ const layer = Layer.effect(
       read: (sessionID) => read(db, sessionID),
       readTodo: (sessionID) => readTodo(db, sessionID),
       readState,
+      recordRound: (sessionID) => locks.withLock(sessionID)(recordRound(db, sessionID)),
       update: (sessionID, input) => locks.withLock(sessionID)(update(sessionID, input)),
       replaceTodo: (sessionID, todos, expected) => locks.withLock(sessionID)(replaceTodo(sessionID, todos, expected)),
       block: (sessionID, reason) => locks.withLock(sessionID)(settle(sessionID, "blocked", reason)),

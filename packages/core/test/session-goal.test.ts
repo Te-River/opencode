@@ -143,59 +143,21 @@ describe("SessionGoal", () => {
     }),
   )
 
-  it.effect("todo.updated replaces the whole list and a replayed event is a no-op", () =>
+  it.effect("todo.updated replaces the whole list and replay is a no-op", () =>
     Effect.gen(function* () {
       const { db, bus } = yield* setup
-      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
-      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 2, todos })
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([
-        { position: 0, content: "first", status: "pending", acceptance: "tests pass", feedback: undefined },
-        { position: 1, content: "second", status: "in_progress", acceptance: undefined, feedback: undefined },
-      ])
-
-      // The same revision arrives twice; only the first one advances the goal.
-      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 2, todos: [todos[0]] })
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toHaveLength(2)
-    }),
-  )
-
-  it.effect("todo.updated never rewinds the goal revision, so a stale verdict stays rejected", () =>
-    Effect.gen(function* () {
-      const { db, bus } = yield* setup
-      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
-      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 2, todos })
-      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 3, todos })
-
-      // A late list event carrying an older revision must not move the goal back to a
-      // number a verdict judged against the previous list still carries.
-      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 2, todos: [todos[0]] })
-      expect(yield* SessionGoal.read(db, sessionID)).toMatchObject({ revision: 3 })
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toHaveLength(2)
-
-      yield* bus.publish(SessionEvent.Todo.Verified, {
-        sessionID,
-        revision: 2,
-        items: [{ position: 0, status: "completed", feedback: "stale" }],
-      })
-      expect((yield* rounds(db))?.rounds).toBe(0)
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([
-        { position: 0, content: "first", status: "pending", acceptance: "tests pass", feedback: undefined },
-        { position: 1, content: "second", status: "in_progress", acceptance: undefined, feedback: undefined },
-      ])
-    }),
-  )
-
-  it.effect("todo.updated without a goal row is dropped", () =>
-    Effect.gen(function* () {
-      const { db, bus } = yield* setup
-      // A list only exists under a goal, so an event without one leaves no state.
       yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 1, todos })
-      expect(yield* SessionGoal.read(db, sessionID)).toBeUndefined()
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([])
+      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([
+        { position: 0, content: "first", status: "pending", acceptance: "tests pass", feedback: undefined },
+        { position: 1, content: "second", status: "in_progress", acceptance: undefined, feedback: undefined },
+      ])
+
+      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 1, todos })
+      expect(yield* SessionGoal.readTodo(db, sessionID)).toHaveLength(2)
     }),
   )
 
-  it.effect("todo.verified applies a fresh verdict and advances rounds", () =>
+  it.effect("todo.verified applies a fresh verdict", () =>
     Effect.gen(function* () {
       const { db, bus } = yield* setup
       yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
@@ -212,7 +174,8 @@ describe("SessionGoal", () => {
         { position: 0, content: "first", status: "completed", acceptance: "tests pass", feedback: "ok" },
         { position: 1, content: "second", status: "in_progress", acceptance: undefined, feedback: "needs work" },
       ])
-      expect((yield* rounds(db))?.rounds).toBe(1)
+      // The driver owns the round counter; a verdict does not advance it.
+      expect((yield* rounds(db))?.rounds).toBe(0)
     }),
   )
 
@@ -247,7 +210,10 @@ describe("SessionGoal", () => {
         items: [{ position: 0, status: "completed", feedback: "ok" }],
       })
       expect(yield* SessionGoal.read(db, sessionID)).toBeUndefined()
-      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([])
+      expect(yield* SessionGoal.readTodo(db, sessionID)).toEqual([
+        { position: 0, content: "first", status: "pending", acceptance: "tests pass", feedback: undefined },
+        { position: 1, content: "second", status: "in_progress", acceptance: undefined, feedback: undefined },
+      ])
     }),
   )
 })
@@ -334,18 +300,26 @@ describe("SessionGoal.Service", () => {
 
   serviceIt.effect("set starts a new goal with a fresh round budget", () =>
     Effect.gen(function* () {
-      const { db, bus } = yield* setup
+      const { db } = yield* setup
       const goal = yield* SessionGoal.Service
-      const first = yield* goal.update(sessionID, { action: "set", objective: "first" })
-      yield* goal.replaceTodo(sessionID, [{ content: "first", status: "pending" }])
-      yield* bus.publish(SessionEvent.Todo.Verified, {
-        sessionID,
-        revision: first.revision + 1,
-        items: [{ position: 0, status: "pending", feedback: "not yet" }],
-      })
-      expect((yield* rounds(db))?.rounds).toBe(1)
+      yield* goal.update(sessionID, { action: "set", objective: "first" })
+      yield* goal.recordRound(sessionID)
+      yield* goal.recordRound(sessionID)
+      expect((yield* rounds(db))?.rounds).toBe(2)
 
       yield* goal.update(sessionID, { action: "set", objective: "second" })
+      expect((yield* rounds(db))?.rounds).toBe(0)
+    }),
+  )
+
+  serviceIt.effect("recordRound counts only an active goal", () =>
+    Effect.gen(function* () {
+      const { db } = yield* setup
+      const goal = yield* SessionGoal.Service
+      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
+      yield* goal.block(sessionID, { code: "max_rounds", message: "done" })
+      // A goal that settled while a round was being admitted keeps its final count.
+      yield* goal.recordRound(sessionID)
       expect((yield* rounds(db))?.rounds).toBe(0)
     }),
   )

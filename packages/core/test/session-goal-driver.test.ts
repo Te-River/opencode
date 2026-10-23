@@ -379,7 +379,27 @@ describe("SessionGoalDriver", () => {
 })
 
 describe("SessionGoalDriver rounds", () => {
-  it.effect("a verification advances the durable round counter", () =>
+  it.effect("a silent verifier cannot schedule past the round budget", () =>
+    Effect.gen(function* () {
+      reset()
+      const { db, goal, snapshot } = yield* start
+      // `reset()` leaves the verifier stub publishing nothing, so only the
+      // driver's own durable count can stop the sequence.
+      const budget = snapshot.maxGoalRounds
+      const counts = yield* Effect.forEach(
+        Array.from({ length: budget + 2 }),
+        () => SessionGoalDriver.onSucceeded(sessionID, context).pipe(Effect.andThen(roundCount(db))),
+      )
+      expect(counts).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 8, 8])
+      expect(rounds).toHaveLength(budget)
+      expect(yield* goal.read(sessionID)).toMatchObject({
+        phase: "blocked",
+        blockedReason: { code: "max_rounds" },
+      })
+    }),
+  )
+
+  it.effect("a verdict does not count a round by itself", () =>
     Effect.gen(function* () {
       reset()
       const { db, bus, goal } = yield* start
@@ -389,13 +409,19 @@ describe("SessionGoalDriver rounds", () => {
         revision: current?.revision ?? 0,
         items: [{ position: 0, status: "pending", feedback: "not yet" }],
       })
-      const row = yield* db
-        .select({ rounds: SessionGoalTable.rounds })
-        .from(SessionGoalTable)
-        .where(eq(SessionGoalTable.session_id, sessionID))
-        .get()
-        .pipe(Effect.orDie)
-      expect(row?.rounds).toBe(1)
+      // The driver is the only writer: a verdict alone must not move the counter.
+      expect(yield* roundCount(db)).toBe(0)
     }),
   )
 })
+
+const roundCount = (db: Database.Interface["db"]) =>
+  db
+    .select({ rounds: SessionGoalTable.rounds })
+    .from(SessionGoalTable)
+    .where(eq(SessionGoalTable.session_id, sessionID))
+    .get()
+    .pipe(
+      Effect.orDie,
+      Effect.map((row) => row?.rounds ?? 0),
+    )
