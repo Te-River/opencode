@@ -311,7 +311,7 @@ export namespace Todo {
     ...options,
     schema: {
       ...Base,
-      /** The goal revision this list belongs to; a later list advances it. */
+      /** The goal revision this list advances to; a list that does not advance it is dropped. */
       revision: NonNegativeInt,
       todos: Schema.Array(SessionGoal.TodoInput),
     },

@@ -61,7 +61,13 @@ export const projectCleared = Effect.fn("SessionGoal.projectCleared")(function* 
     .pipe(Effect.orDie)
 })
 
-/** Replace the whole list and advance the goal revision, so a stale verification is rejected. */
+/**
+ * Replace the whole list and advance the goal revision, so a stale verification is
+ * rejected. The revision is the same counter a verification is judged against, so an
+ * event that does not advance it is dropped: letting it through would rewind the goal
+ * to a number an already-stale verdict carries. A list only exists under a goal, so an
+ * event with no goal row is dropped as well instead of writing a list no verdict can match.
+ */
 export const projectTodoUpdated = Effect.fn("SessionGoal.projectTodoUpdated")(function* (
   db: DatabaseService,
   input: {
@@ -70,6 +76,13 @@ export const projectTodoUpdated = Effect.fn("SessionGoal.projectTodoUpdated")(fu
     readonly todos: ReadonlyArray<SessionGoalSchema.TodoInput>
   },
 ) {
+  const goal = yield* db
+    .select({ revision: SessionGoalTable.revision })
+    .from(SessionGoalTable)
+    .where(eq(SessionGoalTable.session_id, input.sessionID))
+    .get()
+    .pipe(Effect.orDie)
+  if (!goal || input.revision <= goal.revision) return
   yield* clearTodos(db, input.sessionID)
   if (input.todos.length > 0)
     yield* db
