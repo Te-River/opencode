@@ -82,7 +82,6 @@ export function SessionGoalDock(props: { model: SessionGoalModel }) {
                 objective={goal.objective}
                 phase={goal.phase}
                 createdAt={createdAt()}
-                frozenAt={props.model.phaseChangedAt()}
                 blockedReason={goal.blockedReason?.message}
                 stopped={goal.phase === "active" && props.model.state()?.armed === false}
                 hint={hint() && !store.hintDismissed}
@@ -128,7 +127,6 @@ function SessionGoalProgress(props: {
   objective: string
   phase: GoalPhase
   createdAt?: number
-  frozenAt?: number
   blockedReason?: string
   stopped: boolean
   hint: boolean
@@ -136,7 +134,7 @@ function SessionGoalProgress(props: {
   todo: SessionGoalState["todo"]
 }) {
   const language = useLanguage()
-  const [clock, setClock] = createStore({ elapsed: 0, ended: 0 })
+  const [clock, setClock] = createStore({ elapsed: 0 })
   let timer: ReturnType<typeof setInterval> | undefined
 
   const stop = () => {
@@ -145,37 +143,28 @@ function SessionGoalProgress(props: {
     timer = undefined
   }
 
-  // Elapsed time only advances while the goal is active. A stopped goal measures up to the
-  // phase change the client recorded; without one, it measures up to the moment this render
-  // first saw the goal outside `active`, so the value never grows past that point.
-  const span = () => {
-    if (props.createdAt === undefined) return
-    const end = props.phase === "active" ? Date.now() : (props.frozenAt ?? clock.ended)
-
-    return Math.max(0, Math.round((end - props.createdAt) / 1000))
-  }
-
+  // Elapsed time is only known while the goal is active. The durable goal has no
+  // phase-change time, so a stopped goal would have to guess where its run ended; it
+  // shows the phase instead rather than a number that drifts between reloads.
   const tick = () => {
-    setClock("elapsed", span() ?? 0)
+    const total = props.createdAt === undefined ? 0 : Math.round((Date.now() - props.createdAt) / 1000)
+    setClock("elapsed", Math.max(0, total))
   }
 
   createEffect(
     on(
-      () => props.phase,
-      (phase) => {
+      () => [props.phase, props.createdAt] as const,
+      ([phase]) => {
         stop()
-        setClock("ended", phase === "active" ? 0 : Date.now())
         tick()
         if (phase === "active") timer = setInterval(tick, 1000)
       },
     ),
   )
-  // The recording can land after the phase does, when the goal re-read follows its event.
-  createEffect(on(() => props.frozenAt, tick))
   onCleanup(stop)
 
   const elapsed = createMemo(() => {
-    if (props.createdAt === undefined) return ""
+    if (props.phase !== "active" || props.createdAt === undefined) return ""
     const format = new Intl.NumberFormat(language.intl())
     const total = clock.elapsed
 

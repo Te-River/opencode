@@ -16,29 +16,25 @@ story("offers pause while the goal is active", async ({ mount }) => {
   await expect(goal.getByRole("button")).toHaveCount(1)
 })
 
-story("freezes the elapsed time while paused", async ({ mount, page }) => {
-  const component = await mount("app-session-goal-dock--paused")
-  const elapsed = component.locator('[data-slot="session-goal-elapsed"]')
-  await expect(elapsed).toHaveText(/^\d+m \d+s$/)
-  const frozen = await elapsed.textContent()
-  await page.waitForTimeout(1500)
-  await expect(elapsed).toHaveText(frozen ?? "")
+story("shows the elapsed time only while the goal is active", async ({ mount }) => {
+  const active = await mount("app-session-goal-dock--active")
+  await expect(active.locator('[data-slot="session-goal-elapsed"]')).toHaveText(/^\d+m \d+s$/)
+
+  // A stopped goal has no durable phase-change time, so it shows its phase and no duration
+  // instead of a number that would be reconstructed per browser.
+  const paused = await mount("app-session-goal-dock--paused")
+  await expect(paused.locator('[data-slot="session-goal-elapsed"]')).toHaveCount(0)
+
+  const complete = await mount("app-session-goal-dock--complete")
+  await expect(complete.locator('[data-slot="session-goal-elapsed"]')).toHaveCount(0)
+
+  const blocked = await mount("app-session-goal-dock--blocked")
+  await expect(blocked.locator('[data-slot="session-goal-elapsed"]')).toHaveCount(0)
 })
 
 story("formats an hour or more as hours and minutes", async ({ mount }) => {
   const component = await mount("app-session-goal-dock--active-long-running")
   await expect(component.locator('[data-slot="session-goal-elapsed"]')).toHaveText("1h 35m")
-})
-
-story("keeps a stopped goal's elapsed time frozen across a remount", async ({ mount }) => {
-  const first = await mount("app-session-goal-dock--paused-frozen")
-  const elapsed = first.locator('[data-slot="session-goal-elapsed"]')
-  await expect(elapsed).toHaveText("1m 5s")
-
-  // A reload re-reads the durable goal, which carries no phase-change time: the frozen
-  // value must come from the recorded transition, not from the read time.
-  const second = await mount("app-session-goal-dock--paused-frozen")
-  await expect(second.locator('[data-slot="session-goal-elapsed"]')).toHaveText("1m 5s")
 })
 
 story("surfaces the still-active notice after an interruption", async ({ mount }) => {
