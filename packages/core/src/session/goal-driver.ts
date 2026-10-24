@@ -33,7 +33,7 @@ export const isDriverEvent = (event: { readonly type: string }): event is Sessio
  * synthetic inbox row plus one wake, and the existing execution machinery drains it.
  * `session.execution.succeeded` is the only place a round is scheduled, so a
  * round can only follow a verification, and `maxGoalRounds` bounds the sequence.
- * The round is counted here, before its row exists, because a verifier that
+ * The round is counted by its inbox row's projection, because a verifier that
  * publishes nothing would otherwise let the budget never trigger.
  */
 export const scheduleRound = Effect.fn("SessionGoalDriver.scheduleRound")(function* (sessionID: SessionSchema.ID) {
@@ -43,9 +43,8 @@ export const scheduleRound = Effect.fn("SessionGoalDriver.scheduleRound")(functi
   const state = yield* goal.readState(sessionID)
   if (state.goal?.phase !== "active") return
   const sessions = yield* Session.Service
-  // Durable before the row exists: a restart reads the same count, and the
-  // verifier's verdict no longer has to arrive for the budget to advance.
-  yield* goal.recordRound(sessionID)
+  // The round is counted by this row's projection, in the same transaction, so the
+  // count is durable before the row exists and a restart reads the same value.
   yield* sessions.synthetic({
     sessionID,
     text: renderRoundPrompt(state),

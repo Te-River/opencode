@@ -683,6 +683,12 @@ const layer = Layer.effectDiscard(
           item: event.data.item,
           timeCreated: event.created,
         })
+        // The goal driver defers a round as a synthetic row tagged with its source.
+        // Counting it in the same transaction keeps `session_goal.rounds` derivable
+        // from the event log: a replay rebuilds the budget, and clients that follow
+        // events see the count move.
+        if (event.data.item.type === "synthetic" && event.data.item.payload.metadata?.["source"] === "goal")
+          yield* SessionGoal.projectRoundScheduled(db, event.data.sessionID)
         yield* db
           .update(SessionTable)
           .set({ time_updated: event.created })
