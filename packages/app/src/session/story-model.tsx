@@ -198,6 +198,8 @@ function SessionSurfaceState(props: SessionPreviewProps & { onReset: () => void 
 
   const goal = {
     state: () => undefined,
+    phaseChangedAt: () => undefined,
+    interrupted: () => false,
     pause: () => undefined,
     resume: () => undefined,
     edit: () => undefined,
