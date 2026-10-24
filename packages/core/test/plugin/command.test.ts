@@ -36,7 +36,6 @@ const goalLayer = Layer.succeed(
     read: () => Effect.succeed(undefined),
     readTodo: () => Effect.succeed([]),
     readState: () => Effect.die("unused SessionGoal.readState"),
-    recordRound: () => Effect.die("unused SessionGoal.recordRound"),
     update: (_sessionID, input) =>
       Effect.sync(() => {
         goalUpdates.push(input)

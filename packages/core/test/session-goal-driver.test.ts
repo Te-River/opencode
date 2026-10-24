@@ -48,16 +48,30 @@ const reset = () => {
 const sessionLayer = Layer.succeed(
   Session.Service,
   Session.Service.of({
+    // The real admission path publishes `session.inbox.enqueued`, whose projection
+    // owns the round count; the stub keeps that contract instead of counting itself.
     synthetic: (input: Parameters<Session.Interface["synthetic"]>[0]) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const bus = yield* Bus.Service
         rounds.push(input)
-        return {
-          id: SessionMessage.ID.create(),
+        const id = SessionMessage.ID.create()
+        const delivery = input.delivery ?? "steer"
+        const event = yield* bus.publish(SessionEvent.InboxEnqueued, {
+          inboxID: id,
           sessionID: input.sessionID,
-          time: { created: 0 },
+          item: {
+            type: "synthetic",
+            payload: { text: input.text, description: input.description, metadata: input.metadata },
+            delivery,
+          },
+        })
+        return {
+          id,
+          sessionID: input.sessionID,
+          time: { created: event.created },
           type: "synthetic" as const,
-          payload: { text: input.text },
-          delivery: "steer" as const,
+          payload: { text: input.text, description: input.description, metadata: input.metadata },
+          delivery,
         }
       }),
     inbox: () => Effect.succeed(pending),
@@ -383,8 +397,8 @@ describe("SessionGoalDriver rounds", () => {
     Effect.gen(function* () {
       reset()
       const { db, goal, snapshot } = yield* start
-      // `reset()` leaves the verifier stub publishing nothing, so only the
-      // driver's own durable count can stop the sequence.
+      // `reset()` leaves the verifier stub publishing nothing, so only the durable
+      // count written by the scheduled row's projection can stop the sequence.
       const budget = snapshot.maxGoalRounds
       const counts = yield* Effect.forEach(
         Array.from({ length: budget + 2 }),
@@ -409,7 +423,8 @@ describe("SessionGoalDriver rounds", () => {
         revision: current?.revision ?? 0,
         items: [{ position: 0, status: "pending", feedback: "not yet" }],
       })
-      // The driver is the only writer: a verdict alone must not move the counter.
+      // The scheduled inbox row is the only writer: a verdict alone must not move
+      // the counter.
       expect(yield* roundCount(db)).toBe(0)
     }),
   )

@@ -5,6 +5,7 @@ import { Database } from "@opencode/core/database/database"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Bus } from "@opencode/core/bus"
+import { Event } from "@opencode/schema/event"
 import { Project } from "@opencode/core/project"
 import { ProjectTable } from "@opencode/core/project/sql"
 import { AbsolutePath } from "@opencode/core/schema"
@@ -12,6 +13,7 @@ import { SessionEvent } from "@opencode/core/session/event"
 import { SessionExecution } from "@opencode/core/session/execution"
 import { SessionGoal } from "@opencode/core/session/goal"
 import { SessionGoalActivation } from "@opencode/core/session/goal-activation"
+import { SessionMessage } from "@opencode/core/session/message"
 import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionSchema } from "@opencode/core/session/schema"
 import { SessionGoalTable, SessionTable } from "@opencode/core/session/sql"
@@ -70,6 +72,13 @@ const rounds = (db: Effect.Success<typeof setup>["db"]) =>
     .where(eq(SessionGoalTable.session_id, sessionID))
     .get()
     .pipe(Effect.orDie)
+
+/** The synthetic inbox row the goal driver defers a round with. */
+const goalRound = (round: number) => ({
+  type: "synthetic" as const,
+  payload: { text: `round ${round}`, description: "goal round", metadata: { source: "goal", round } },
+  delivery: "steer" as const,
+})
 
 describe("SessionGoal", () => {
   it.effect("migration creates the session_goal and session_todo tables", () =>
@@ -333,29 +342,88 @@ describe("SessionGoal.Service", () => {
     }),
   )
 
-  serviceIt.effect("set starts a new goal with a fresh round budget", () =>
+  it.effect("set starts a new goal with a fresh round budget", () =>
     Effect.gen(function* () {
-      const { db } = yield* setup
-      const goal = yield* SessionGoal.Service
-      yield* goal.update(sessionID, { action: "set", objective: "first" })
-      yield* goal.recordRound(sessionID)
-      yield* goal.recordRound(sessionID)
+      const { db, bus } = yield* setup
+      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
+      yield* bus.publish(SessionEvent.InboxEnqueued, { inboxID: SessionMessage.ID.create(), sessionID, item: goalRound(1) })
+      yield* bus.publish(SessionEvent.InboxEnqueued, { inboxID: SessionMessage.ID.create(), sessionID, item: goalRound(2) })
       expect((yield* rounds(db))?.rounds).toBe(2)
 
-      yield* goal.update(sessionID, { action: "set", objective: "second" })
+      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1, { id: GoalSchema.ID.make("goal_other") }) })
       expect((yield* rounds(db))?.rounds).toBe(0)
     }),
   )
 
-  serviceIt.effect("recordRound counts only an active goal", () =>
+  it.effect("the inbox projection counts a goal round and only a goal round", () =>
     Effect.gen(function* () {
-      const { db } = yield* setup
-      const goal = yield* SessionGoal.Service
-      yield* goal.update(sessionID, { action: "set", objective: "ship it" })
-      yield* goal.block(sessionID, { code: "max_rounds", message: "done" })
-      // A goal that settled while a round was being admitted keeps its final count.
-      yield* goal.recordRound(sessionID)
+      const { db, bus } = yield* setup
+      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
+      yield* bus.publish(SessionEvent.InboxEnqueued, { inboxID: SessionMessage.ID.create(), sessionID, item: goalRound(1) })
+      expect((yield* rounds(db))?.rounds).toBe(1)
+
+      // A synthetic row that is not a goal round leaves the budget alone.
+      yield* bus.publish(SessionEvent.InboxEnqueued, {
+        inboxID: SessionMessage.ID.create(),
+        sessionID,
+        item: { type: "synthetic", payload: { text: "unrelated" }, delivery: "steer" },
+      })
+      expect((yield* rounds(db))?.rounds).toBe(1)
+    }),
+  )
+
+  it.effect("a round admitted after the goal settled keeps the final count", () =>
+    Effect.gen(function* () {
+      const { db, bus } = yield* setup
+      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1, { phase: "blocked" }) })
+      yield* bus.publish(SessionEvent.InboxEnqueued, { inboxID: SessionMessage.ID.create(), sessionID, item: goalRound(1) })
       expect((yield* rounds(db))?.rounds).toBe(0)
+    }),
+  )
+
+  it.effect("a rebuild from the event log restores the round count", () =>
+    Effect.gen(function* () {
+      const { db, bus } = yield* setup
+      yield* bus.publish(SessionEvent.Goal.Updated, { sessionID, snapshot: snapshot(1) })
+      yield* bus.publish(SessionEvent.Todo.Updated, { sessionID, revision: 2, todos })
+      yield* Effect.forEach(
+        [1, 2, 3],
+        (round) =>
+          bus.publish(SessionEvent.InboxEnqueued, {
+            inboxID: SessionMessage.ID.create(),
+            sessionID,
+            item: goalRound(round),
+          }),
+        { discard: true },
+      )
+      expect((yield* rounds(db))?.rounds).toBe(3)
+
+      // The log is the only surviving source: drop the projected rows and replay it.
+      const stored = yield* db
+        .all<{ id: string; type: string; seq: number; created: number | null; data: string }>(
+          sql`select id, type, seq, created, data from event where aggregate_id = ${sessionID} order by seq`,
+        )
+        .pipe(Effect.orDie)
+      yield* bus.remove(sessionID)
+      yield* db.run(sql`delete from session_inbox where session_id = ${sessionID}`)
+      yield* db.delete(SessionGoalTable).where(eq(SessionGoalTable.session_id, sessionID)).run().pipe(Effect.orDie)
+      expect(yield* rounds(db)).toBeUndefined()
+
+      yield* Effect.forEach(
+        stored,
+        (event) =>
+          bus.replay({
+            id: Event.ID.make(event.id),
+            type: event.type,
+            seq: event.seq,
+            created: event.created ?? 0,
+            aggregateID: sessionID,
+            data: JSON.parse(event.data) as Record<string, unknown>,
+          }),
+        { discard: true },
+      )
+      // Before this change the count lived only in the table, so a rebuild reset it to 0.
+      expect((yield* rounds(db))?.rounds).toBe(3)
     }),
   )
 
