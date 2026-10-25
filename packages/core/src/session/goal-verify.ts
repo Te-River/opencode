@@ -1,6 +1,6 @@
 export * as SessionGoalVerify from "./goal-verify.js"
 
-import { LLMClient, LLMEvent, Message, SystemPart } from "@opencode/ai"
+import { LLMClient, LLMEvent, Message, SystemPart } from "@opencode/ai/effect"
 import type { Agent } from "@opencode/schema/agent"
 import type { FileDiff } from "@opencode/schema/file-diff"
 import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"

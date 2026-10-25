@@ -1,6 +1,6 @@
 export * as GoalTool from "./goal.js"
 
-import { ToolFailure } from "@opencode/ai"
+import { ToolFailure } from "@opencode/ai/effect"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { SessionGoal as SessionGoalSchema } from "@opencode/schema/session-goal"
 import { Effect, Schema } from "effect"
