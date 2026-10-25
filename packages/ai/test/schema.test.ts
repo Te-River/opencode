@@ -107,6 +107,17 @@ describe("ToolResultValue", () => {
     }
   })
 
+  test("normalizes an undefined json value to null", () => {
+    expect(ToolResultValue.make(undefined)).toEqual({ type: "json", value: null })
+    expect(ToolResultValue.make(undefined, "json")).toEqual({ type: "json", value: null })
+    expect(ToolResultValue.make(undefined, "text")).toEqual({ type: "text", value: undefined })
+  })
+
+  test("builds an empty-content tool output through the same normalization", () => {
+    expect(ToolOutput.toResultValue(ToolOutput.make(undefined))).toEqual({ type: "json", value: null })
+    expect(ToolOutput.toResultValue(ToolOutput.make({ ok: true }))).toEqual({ type: "json", value: { ok: true } })
+  })
+
   test("accepts canonical results with extra fields", () => {
     expect(ToolResultValue.is({ type: "json", value: { ok: true }, metadata: { source: "tool" } })).toBe(true)
     expect(

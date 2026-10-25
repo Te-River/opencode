@@ -83,6 +83,8 @@ export const ToolResultValue = withStatics(toolResultValueSchema, {
   make: (value: unknown, type: ToolResultValue["type"] = "json"): ToolResultValue => {
     if (isToolResultValue(value)) return value
     if (type === "content") return { type, value: Array.isArray(value) ? value : [] }
+    // A json result must stay JSON-encodable; `undefined` has no encoding and would abort request lowering later.
+    if (type === "json" && value === undefined) return { type, value: null }
     return { type, value }
   },
 })
@@ -112,7 +114,7 @@ export const ToolOutput = withStatics(
       }
     },
     toResultValue: (output: ToolOutput): ToolResultValue => {
-      if (output.content.length === 0) return { type: "json", value: output.structured }
+      if (output.content.length === 0) return ToolResultValue.make(output.structured)
       if (output.content.length === 1 && output.content[0]?.type === "text")
         return { type: "text", value: output.content[0].text }
       return { type: "content", value: output.content }
