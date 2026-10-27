@@ -10,6 +10,7 @@ import { applyCachePolicy } from "../cache-policy.js"
 import { applyEffortUpdates } from "../effort-updates.js"
 import { normalizeToolHistory } from "../tool-history.js"
 import { sanitizeSurrogates } from "../utils/sanitize.js"
+import { findUnencodable } from "../utils/json.js"
 import * as ProviderShared from "../protocols/shared.js"
 import { ToolSchemaProjection } from "../protocols/utils/tool-schema.js"
 import type { LanguageModelSanitizerCompatibility, ProtocolID, ProviderOptions } from "../schema/index.js"
@@ -592,6 +593,17 @@ const compile = Effect.fn("LLM.compile")(function* (request: LLMRequest, options
   if (references.some((reference) => /^\s*file:/i.test(reference)))
     return yield* ProviderShared.invalidRequest(
       "Local file references must be read with Media.file(path) before sending",
+    )
+  const unencodable = findUnencodable({
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools,
+    toolChoice: request.toolChoice,
+    providerOptions: request.providerOptions,
+  })
+  if (unencodable !== undefined)
+    return yield* ProviderShared.invalidRequest(
+      `Route ${request.model.route.id} cannot encode this request as JSON: ${unencodable}`,
     )
   const resolved = prepareRequest(request)
   const route = resolved.model.route
